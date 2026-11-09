@@ -94,9 +94,12 @@ jobs:
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
 
+  # Off until the repo variable NPM_PUBLISH is "true". The first publish of a new
+  # package is manual (`npm publish --access public`); Trusted Publishing can only
+  # be set up on npmjs.com once the package exists.
   publish:
     needs: release
-    if: needs.release.outputs.version
+    if: needs.release.outputs.version && vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
