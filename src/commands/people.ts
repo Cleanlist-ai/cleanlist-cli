@@ -6,10 +6,10 @@ import { printRows } from '../output.js';
 const ARRAY_FLAGS: Record<string, [field: string, splitCommas: boolean, desc: string]> = {
   title: ['jobTitlesInclude', false, 'Job title (repeatable).'],
   'exclude-title': ['jobTitlesExclude', false, 'Job title to exclude (repeatable).'],
-  seniority: ['seniority', true, 'Seniority, e.g. vp,director,c_suite (see `people filters seniority`).'],
-  function: ['functionCategoriesInclude', true, 'Job function (see `people filters functionCategoriesInclude`).'],
-  industry: ['industriesInclude', false, 'Company industry (repeatable).'],
-  'company-size': ['companySizes', true, 'Company size band, e.g. 51-200 (see `people filters companySizes`).'],
+  seniority: ['seniority', true, 'Seniority: Owner / Partner, CXO, Vice President, Director, Manager, Senior, Entry, Training.'],
+  function: ['functionCategoriesInclude', true, 'Job function: Engineering, Sales, Marketing, Operations, Finance, Human Resources, Product Management, Consulting, Research, Customer Success, Legal, Arts and Design.'],
+  industry: ['industriesInclude', false, 'Company industry, repeatable (exact labels: `people filters company_industries <word>`).'],
+  'company-size': ['companySizes', false, 'Employees, repeatable: 1-10, 11-50, 51-200, 201-500, 501-1,000, 1,001-5,000, 5,001-10,000, 10,001+.'],
   country: ['contactCountries', true, 'Person country.'],
   region: ['contactRegions', false, 'Person state/region.'],
   city: ['contactCities', false, 'Person city.'],
@@ -69,7 +69,7 @@ export const peopleCommands: Command[] = [
     },
     view: { rows: (d) => d.results, columns: PEOPLE_COLUMNS },
     examples: [
-      'cleanlist people search --title "VP Sales" --seniority vp --country "United States" --company-size 51-200',
+      'cleanlist people search --title "VP Sales" --seniority "Vice President" --country "United States" --company-size 51-200 --company-size 201-500',
       'cut -d, -f1 accounts.csv | cleanlist people search --company-domains-file - --title "Head of RevOps" --json',
       'cleanlist people search --criteria criteria.json --limit 50',
     ],
@@ -102,9 +102,9 @@ export const peopleCommands: Command[] = [
   {
     name: 'people filters',
     args: '<field> [query]',
-    summary: 'Look up accepted values for a search field (seniority, companySizes, industriesInclude, ...).',
+    summary: 'Look up values: titles, company_industries, job_functions, locations, departments, management_levels, company_headcount.',
     view: { rows: (d) => d.options },
-    examples: ['cleanlist people filters seniority', 'cleanlist people filters industriesInclude software'],
+    examples: ['cleanlist people filters company_industries software', 'cleanlist people filters titles "revenue operations"'],
     async run(ctx) {
       if (!ctx.args[0]) throw new CliError(EXIT.USAGE, 'Name the field, e.g. seniority.');
       return (await ctx.api.get('/api/v2/people/find/filters', { field: ctx.args[0], query: ctx.args[1] })).data;

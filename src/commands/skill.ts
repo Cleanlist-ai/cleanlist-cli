@@ -23,8 +23,11 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 
 ## Rules
 - Paid commands print a quote. Exit 7 means confirmation is required: show the
-  user the cost from the quote, and only re-run with \`--yes\` after they approve
-  it. A quote is not approval. Use \`--max-credits N\` as a ceiling.
+  user the cost and any CRM note (enriched people may be pushed to their CRM),
+  and only re-run with \`--yes\` after they approve. A quote is not approval.
+  Use \`--max-credits N\` as a ceiling.
+- Search seniority values: Owner / Partner, CXO, Vice President, Director,
+  Manager, Senior, Entry, Training. Industry labels: \`people filters company_industries <word>\`.
 - Keep rows out of the conversation: write files with \`-o\`/\`--format csv\` and
   summarize, instead of printing hundreds of rows.
 - Output is JSON when piped; errors are JSON on stderr with a \`fix\` hint.

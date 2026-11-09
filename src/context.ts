@@ -80,7 +80,8 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   const { data: q } = await ctx.api.post<Quote>('/api/v2/credits/estimate', estimate);
   const summary = `${what}: ${q.estimated_cost.toLocaleString()} credits for ${q.row_count.toLocaleString()} row(s). Balance ${q.available_credits.toLocaleString()}.`;
   if (ctx.opts['dry-run']) throw new DryRun(q);
-  ctx.log(summary + (q.crm_note ? `\n${q.crm_note}` : ''));
+  // Refusals carry the quote in the error; only log it when going ahead or asking.
+  const announce = () => ctx.log(summary + (q.crm_note ? `\n${q.crm_note}` : ''));
 
   if (!q.sufficient) {
     throw new CliError(EXIT.CREDITS, `Not enough credits: needs ${q.estimated_cost}, balance ${q.available_credits}.`, 'Buy credits or narrow the job.', { quote: q });
@@ -89,15 +90,19 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   if (max !== undefined && q.estimated_cost > Number(max)) {
     throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, undefined, { quote: q });
   }
-  if (ctx.opts.yes || q.estimated_cost === 0) return q;
+  if (ctx.opts.yes || q.estimated_cost === 0) {
+    announce();
+    return q;
+  }
   if (interactive(ctx.opts)) {
+    announce();
     if (await ask(`Spend ${q.estimated_cost.toLocaleString()} credits?`)) return q;
     throw new CliError(EXIT.CONFIRM, 'Cancelled. No credits were spent.');
   }
   throw new CliError(
     EXIT.CONFIRM,
-    `Confirmation required: ${summary}`,
-    'Show this cost to the user. Re-run with --yes only after they approve it.',
+    `Confirmation required: ${summary}${q.crm_note ? ` ${q.crm_note}` : ''}`,
+    'Show this cost (and any CRM note) to the user. Re-run with --yes only after they approve it.',
     { quote: q },
   );
 }
@@ -148,7 +153,7 @@ export async function resolveList(ctx: Ctx, ref: string | undefined): Promise<st
   const matches: { list_id: string; name: string }[] = [];
   let cursor: string | undefined;
   do {
-    const { data } = await ctx.api.get('/api/v2/lead-lists', { limit: 200, cursor });
+    const { data } = await ctx.api.get('/api/v2/lead-lists', { limit: 100, cursor }); // API max
     for (const l of data.lists ?? []) if (l.name === ref) matches.push(l);
     cursor = data.cursor ?? undefined;
   } while (cursor && matches.length < 2);
@@ -166,7 +171,7 @@ export function readInput(path: string): string {
   }
 }
 
-/** Repeatable flag values, also split on commas (`--seniority vp,director`). */
+/** Repeatable flag values, also split on commas (`--function Sales,Marketing`). */
 export function list(v: unknown, split = true): string[] | undefined {
   if (v === undefined) return undefined;
   const arr = (Array.isArray(v) ? v : [v]).map(String);

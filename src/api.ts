@@ -113,8 +113,12 @@ export class Api {
 export function toError(status: number, data: any): CliError {
   const env = data?.error;
   const detail = data?.detail;
+  // Validation errors put the useful part in details.errors: name the field.
+  const first = env?.details?.errors?.[0];
+  const field = (first?.loc ?? []).filter((x: unknown) => x !== 'body').join('.');
+  const where = first && !String(env?.problem ?? '').includes(field) ? ` (${field}: ${first.msg})` : '';
   const message =
-    env?.problem ||
+    (env?.problem && env.problem + where) ||
     env?.message ||
     (typeof detail === 'string' ? detail : detail?.message) ||
     (Array.isArray(detail) ? detail.map((d: any) => `${(d.loc ?? []).slice(1).join('.')}: ${d.msg}`).join('; ') : '') ||
