@@ -1,0 +1,31 @@
+{
+  "name": "@cleanlist-ai/cli",
+  "version": "0.0.0",
+  "description": "Cleanlist from your terminal: find people, enrich CSVs and lists, run smart agents, export. Built for Claude Code, Cursor and Codex.",
+  "license": "MIT",
+  "author": "Cleanlist <sal@cleanlist.ai>",
+  "homepage": "https://github.com/Cleanlist-ai/cleanlist-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cleanlist-ai/cleanlist-cli.git"
+  },
+  "keywords": ["cleanlist", "cli", "b2b", "leads", "enrichment", "claude-code", "cursor", "codex"],
+  "type": "module",
+  "bin": {
+    "cleanlist": "dist/cli.js"
+  },
+  "files": ["dist", "!dist/**/*.test.*"],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "check-spec": "node scripts/check-spec.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.6.0"
+  }
+}

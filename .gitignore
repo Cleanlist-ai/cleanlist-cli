@@ -1,0 +1,4 @@
+node_modules/
+dist/
+*.cleanlist.json
+.DS_Store
