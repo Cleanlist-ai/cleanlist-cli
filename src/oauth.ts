@@ -13,8 +13,9 @@ import { info } from './output.js';
  * public API only (cleanse-api allowlists the client_id).
  */
 export const OAUTH_ISSUER = process.env.CLEANLIST_OAUTH_ISSUER || 'https://clerk.cleanlist.ai';
-// Set once the prod "Cleanlist CLI" Clerk app exists; env overrides for staging.
-export const OAUTH_CLIENT_ID = process.env.CLEANLIST_OAUTH_CLIENT_ID || '';
+// The prod "Cleanlist CLI" Clerk app (public, PKCE). Staging: CLEANLIST_OAUTH_ISSUER
+// + CLEANLIST_OAUTH_CLIENT_ID=aHBQ8oyxCDb3rbPy (the dev instance's app).
+export const OAUTH_CLIENT_ID = process.env.CLEANLIST_OAUTH_CLIENT_ID || 'gNEM1eGjx95RX9kl';
 const SCOPES = 'openid profile email public_metadata user:org:read offline_access';
 
 type OAuthCredential = Extract<Credential, { type: 'oauth' }>;
