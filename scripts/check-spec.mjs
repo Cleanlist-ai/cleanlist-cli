@@ -38,6 +38,12 @@ const NEW_IN_2904 = [
   '/api/v2/inbox/threads/{thread_id}',
   '/api/v2/inbox/threads/{thread_id}/reply',
   '/api/v2/updates',
+  // Developer experience (C10, C11).
+  '/api/v2/logs',
+  '/api/v2/batch/people/lookup',
+  '/api/v2/batch/companies/lookup',
+  // A WebSocket route: OpenAPI never lists it, so it stays here.
+  '/api/v2/events/listen',
 ].map(toRe);
 
 const files = readdirSync('src', { recursive: true }).filter((f) => f.endsWith('.ts'));

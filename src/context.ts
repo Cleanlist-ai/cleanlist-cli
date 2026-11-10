@@ -35,6 +35,8 @@ export interface Ctx {
   profile: string;
   apiUrl: string;
   quiet: boolean;
+  /** --test or CLEANLIST_MODE=test: use the profile's test key. */
+  test: boolean;
   /** Write a progress line to stderr. */
   log(msg: string): void;
 }

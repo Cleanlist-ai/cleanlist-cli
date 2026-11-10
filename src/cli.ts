@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { Api } from './api.js';
-import { type Credential, DEFAULT_API_URL, loadConfig, loadCredential, profileName } from './config.js';
+import { type Credential, DEFAULT_API_URL, loadConfig, loadCredential, profileName, testCredentialName } from './config.js';
 import { type Command, type Ctx, DryRun, logTo, type OptSpec } from './context.js';
 import { CliError, EXIT } from './errors.js';
-import { type Format, print } from './output.js';
+import { type Format, info, print } from './output.js';
 import { VERSION } from './version.js';
 import { accountCommands } from './commands/account.js';
 import { actionCommands } from './commands/actions.js';
 import { agentCommands } from './commands/agents.js';
+import { batchCommands } from './commands/batch.js';
+import { completionCommand } from './commands/completion.js';
 import { enrichCommands } from './commands/enrich.js';
 import { inboxCommands } from './commands/inbox.js';
+import { eventCommands } from './commands/events.js';
 import { listCommands } from './commands/lists.js';
+import { mcpCommands } from './commands/mcp.js';
 import { peopleCommands } from './commands/people.js';
 import { playCommands } from './commands/plays.js';
 import { sequenceCommands } from './commands/sequences.js';
@@ -25,6 +29,7 @@ const COMMANDS: Command[] = [
   ...accountCommands,
   ...peopleCommands,
   ...enrichCommands,
+  ...batchCommands,
   ...listCommands,
   ...smartAgentCommands,
   ...agentCommands,
@@ -35,7 +40,9 @@ const COMMANDS: Command[] = [
   ...updateCommands,
   ...webhookCommands,
   ...actionCommands,
+  ...eventCommands,
   ...skillCommands,
+  ...mcpCommands,
 ];
 
 const GLOBAL: Record<string, OptSpec> = {
@@ -45,6 +52,7 @@ const GLOBAL: Record<string, OptSpec> = {
   'dry-run': { type: 'boolean', desc: 'Paid commands: print the quote and stop.' },
   'max-credits': { type: 'string', desc: 'Paid commands: refuse (exit 5) if the quote is above this.' },
   profile: { type: 'string', desc: 'Saved profile (workspace) to use. Env: CLEANLIST_PROFILE.' },
+  test: { type: 'boolean', desc: 'Use the profile\'s test key (sandbox, nothing real is sent). Env: CLEANLIST_MODE=test.' },
   'api-key': { type: 'string', desc: 'Use this API key. Env: CLEANLIST_API_KEY.' },
   'api-url': { type: 'string', desc: 'API base URL. Env: CLEANLIST_HOST.' },
   'no-input': { type: 'boolean', desc: 'Never prompt (also when not a TTY or CI is set).' },
@@ -54,17 +62,20 @@ const GLOBAL: Record<string, OptSpec> = {
 };
 
 const GROUPS: [string, string][] = [
-  ['Account', 'login logout whoami profiles credits usage'],
+  ['Account', 'login logout whoami profiles use credits usage'],
   ['People', 'people'],
-  ['Enrich', 'enrich'],
+  ['Enrich', 'enrich batch'],
   ['Lists', 'lists'],
   ['AI columns', 'smart-agents'],
   ['GTM agents and plays', 'agents plays'],
   ['Sequences, tasks and Inbox', 'sequences tasks inbox updates'],
   ['Webhooks', 'webhooks'],
   ['Actions (every Clu tool)', 'actions'],
-  ['Agent setup', 'skill'],
+  ['Developer', 'listen logs completion'],
+  ['Agent setup', 'skill mcp'],
 ];
+
+COMMANDS.push(completionCommand(() => COMMANDS, GLOBAL));
 
 function toParseOptions(specs: Record<string, OptSpec>): any {
   return Object.fromEntries(
@@ -128,6 +139,7 @@ ${groups.join('\n\n')}
 
 Auth: \`cleanlist login\`, or set CLEANLIST_API_KEY. Paid commands show a quote and need
 --yes (or a yes at the prompt). Output is a table in a terminal and JSON when piped.
+--test (or CLEANLIST_MODE=test) uses the profile's test key. 429s and 5xx are retried.
 
 Exit codes: 0 ok, 1 error, 2 bad input, 3 auth/plan, 4 not found, 5 credits,
 6 rate limited, 7 confirmation required, 8 still running after --wait timeout.
@@ -196,6 +208,9 @@ async function main(argv: string[]): Promise<void> {
   const saved = loadConfig().profiles[profile];
   const apiUrl = values['api-url'] || process.env.CLEANLIST_HOST || saved?.apiUrl || DEFAULT_API_URL;
   const quiet = Boolean(values.quiet);
+  const envMode = process.env.CLEANLIST_MODE;
+  if (envMode && envMode !== 'test' && envMode !== 'live') throw new CliError(EXIT.USAGE, `CLEANLIST_MODE must be test or live, not "${envMode}".`);
+  const test = Boolean(values.test) || envMode === 'test';
 
   let api: Api | undefined;
   const ctx: Ctx = {
@@ -205,12 +220,19 @@ async function main(argv: string[]): Promise<void> {
     profile,
     apiUrl,
     quiet,
+    test,
     log: logTo(quiet),
     get api() {
       if (!api) {
-        const key = (cmd.name !== 'login' && values['api-key']) || process.env.CLEANLIST_API_KEY;
-        const cred: Credential | undefined = key ? { type: 'api_key', key } : loadCredential(profile);
-        api = new Api(apiUrl, cred, profile, !key);
+        const key: string | undefined = (cmd.name !== 'login' && values['api-key']) || process.env.CLEANLIST_API_KEY;
+        if (test && key && !key.startsWith('clapi_test_')) {
+          throw new CliError(EXIT.USAGE, 'Test mode was asked for, but the API key given is a live key.', 'Pass a clapi_test_ key, or drop --test / CLEANLIST_MODE=test.');
+        }
+        const cred: Credential | undefined = key ? { type: 'api_key', key } : loadCredential(test ? testCredentialName(profile) : profile);
+        if (test && !cred) {
+          throw new CliError(EXIT.AUTH, `No test key saved for profile "${profile}".`, 'Run `cleanlist login --test --api-key -` and paste a clapi_test_ key, or set CLEANLIST_API_KEY to one.');
+        }
+        api = new Api(apiUrl, cred, profile, !key, () => info('TEST mode: sandbox workspace. Nothing is sent to real people or charged.', quiet));
       }
       return api;
     },

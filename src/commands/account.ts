@@ -1,5 +1,15 @@
 import { Api } from '../api.js';
-import { type Credential, deleteCredential, loadConfig, loadCredential, removeProfile, saveCredential, saveProfile } from '../config.js';
+import {
+  type Credential,
+  deleteCredential,
+  loadConfig,
+  loadCredential,
+  removeProfile,
+  saveCredential,
+  saveProfile,
+  testCredentialName,
+  useProfile,
+} from '../config.js';
 import { type Command, confirmSpend, DryRun, intOpt, list, readInput, resolveList } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { loginDevice, loginLoopback, revoke } from '../oauth.js';
@@ -45,6 +55,7 @@ export const accountCommands: Command[] = [
       'cleanlist login --device',
       'cleanlist login --api-key -                     # paste the key at a hidden prompt',
       'cleanlist login --profile acme                 # a second workspace',
+      'cleanlist login --test --api-key -             # this profile\'s test key, used with --test',
     ],
     async run(ctx) {
       let cred: Credential;
@@ -54,11 +65,23 @@ export const accountCommands: Command[] = [
         const value = key !== '-' ? String(key) : process.stdin.isTTY ? await askSecret('Paste your Cleanlist API key: ') : readInput('-').trim();
         if (!value.startsWith('clapi_')) throw new CliError(EXIT.USAGE, 'That is not a Cleanlist API key (they start with clapi_).');
         cred = { type: 'api_key', key: value };
+      } else if (ctx.test) {
+        throw new CliError(EXIT.USAGE, 'Test mode signs in with a test API key.', 'Run `cleanlist login --test --api-key -` and paste a clapi_test_ key (Settings → Developer → Test).');
       } else {
         cred = ctx.opts.device ? await loginDevice() : await loginLoopback();
       }
+      const test = cred.type === 'api_key' && cred.key.startsWith('clapi_test_');
+      if (ctx.test && !test) throw new CliError(EXIT.USAGE, 'That is a live key; --test needs a clapi_test_ key.');
       // Check the credential works and learn which workspace it acts in.
       const me = (await new Api(ctx.apiUrl, cred, ctx.profile, false).get('/api/v2/whoami')).data;
+      if (test) {
+        // A test key sits beside the profile's live credential and leaves its workspace details alone.
+        saveCredential(testCredentialName(ctx.profile), cred);
+        const existing = loadConfig().profiles[ctx.profile];
+        saveProfile(ctx.profile, { apiUrl: ctx.apiUrl, ...existing, hasTestKey: true }, !loadConfig().defaultProfile);
+        ctx.log(`Saved the test key for profile "${ctx.profile}". Use it with --test or CLEANLIST_MODE=test.`);
+        return { profile: ctx.profile, mode: 'test', organization_id: me.organization_id, organization_name: me.organization_name };
+      }
       saveCredential(ctx.profile, cred);
       saveProfile(
         ctx.profile,
@@ -68,6 +91,7 @@ export const accountCommands: Command[] = [
           organizationName: me.organization_name ?? undefined,
           email: me.user_email ?? undefined,
           authType: cred.type,
+          hasTestKey: loadConfig().profiles[ctx.profile]?.hasTestKey,
         },
         !loadConfig().defaultProfile,
       );
@@ -77,9 +101,19 @@ export const accountCommands: Command[] = [
   },
   {
     name: 'logout',
-    summary: 'Delete this profile\'s saved credential (and revoke it, for browser sign-in).',
+    summary: 'Delete this profile\'s saved credentials (and revoke them, for browser sign-in). --test: only its test key.',
     noAuth: true,
     async run(ctx) {
+      const testName = testCredentialName(ctx.profile);
+      if (ctx.test) {
+        const had = Boolean(loadCredential(testName));
+        deleteCredential(testName);
+        const existing = loadConfig().profiles[ctx.profile];
+        if (existing) saveProfile(ctx.profile, { ...existing, hasTestKey: false }, false);
+        ctx.log(`Removed the test key from profile "${ctx.profile}".`);
+        return { profile: ctx.profile, mode: 'test', removed: had };
+      }
+      deleteCredential(testName);
       const cred = loadCredential(ctx.profile);
       if (cred?.type === 'oauth') await revoke(cred);
       deleteCredential(ctx.profile);
@@ -102,22 +136,42 @@ export const accountCommands: Command[] = [
   },
   {
     name: 'profiles',
-    summary: 'List saved profiles (workspaces) on this machine.',
+    summary: 'List saved profiles (workspaces) on this machine. ACTIVE is the one commands use now.',
     noAuth: true,
-    view: { rows: (d) => d.profiles, columns: ['name', 'default', 'organization_name', 'email', 'auth_type', 'api_url'] },
-    async run() {
+    view: { rows: (d) => d.profiles, columns: ['name', 'active', 'default', 'organization_name', 'email', 'auth_type', 'test_key', 'api_url'] },
+    async run(ctx) {
       const cfg = loadConfig();
       return {
         profiles: Object.entries(cfg.profiles).map(([name, p]) => ({
           name,
+          active: name === ctx.profile,
           default: name === cfg.defaultProfile,
           organization_name: p.organizationName,
           organization_id: p.organizationId,
           email: p.email,
           auth_type: p.authType,
+          test_key: Boolean(p.hasTestKey),
           api_url: p.apiUrl,
         })),
       };
+    },
+  },
+  {
+    name: 'use',
+    args: '<profile>',
+    summary: 'Switch workspaces: make this saved profile the default.',
+    noAuth: true,
+    examples: ['cleanlist use acme', 'cleanlist profiles'],
+    async run(ctx) {
+      const name = ctx.args[0];
+      if (!name) throw new CliError(EXIT.USAGE, 'Name the profile to use.', 'See `cleanlist profiles`.');
+      if (!useProfile(name)) throw new CliError(EXIT.NOT_FOUND, `No profile named "${name}".`, `See \`cleanlist profiles\`, or sign in with \`cleanlist login --profile ${name}\`.`);
+      const p = loadConfig().profiles[name];
+      ctx.log(`Now using profile "${name}" (${p.organizationName ?? p.organizationId ?? 'workspace'}).`);
+      if (process.env.CLEANLIST_PROFILE && process.env.CLEANLIST_PROFILE !== name) {
+        ctx.log(`CLEANLIST_PROFILE=${process.env.CLEANLIST_PROFILE} is set and still wins in this shell.`);
+      }
+      return { profile: name, organization_id: p.organizationId, organization_name: p.organizationName };
     },
   },
   {
