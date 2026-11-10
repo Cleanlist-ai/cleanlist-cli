@@ -54,6 +54,13 @@ cleanlist smart-agents run "Q4 ABM" --column Hook --prompt "One-line opener abou
 cleanlist agents run <agent_id> --yes --wait
 cleanlist plays run <playbook_id> --inputs '{"email":"jane@acme.com"}' --yes --wait
 
+# Pull signals: job postings, job changes, post engagers, tech users, account data
+cleanlist jobs search --title "Head of RevOps" --posted-within-days 30 --yes
+cleanlist job-changes list --since 2026-11-01
+cleanlist companies tech --tool Outreach --limit 100 --yes --format csv > accounts.csv
+cleanlist companies committee acme.com --persona "Sales leadership"
+cleanlist meetings list --account acme.com
+
 # Get events at your own URL (signed with Cleanlist-Signature)
 cleanlist webhooks add https://example.com/hooks/cleanlist --events play_run.completed,reply.received
 

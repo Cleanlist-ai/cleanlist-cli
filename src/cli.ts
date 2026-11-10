@@ -11,6 +11,7 @@ import { actionCommands } from './commands/actions.js';
 import { agentCommands } from './commands/agents.js';
 import { batchCommands } from './commands/batch.js';
 import { completionCommand } from './commands/completion.js';
+import { dataCommands } from './commands/data.js';
 import { enrichCommands } from './commands/enrich.js';
 import { inboxCommands } from './commands/inbox.js';
 import { eventCommands } from './commands/events.js';
@@ -32,6 +33,7 @@ const COMMANDS: Command[] = [
   ...batchCommands,
   ...listCommands,
   ...smartAgentCommands,
+  ...dataCommands,
   ...agentCommands,
   ...playCommands,
   ...sequenceCommands,
@@ -67,6 +69,7 @@ const GROUPS: [string, string][] = [
   ['Enrich', 'enrich batch'],
   ['Lists', 'lists'],
   ['AI columns', 'smart-agents'],
+  ['Signals and account data', 'jobs job-changes linkedin companies meetings'],
   ['GTM agents and plays', 'agents plays'],
   ['Sequences, tasks and Inbox', 'sequences tasks inbox updates'],
   ['Webhooks', 'webhooks'],

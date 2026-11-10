@@ -11,8 +11,8 @@ const toRe = (p) => new RegExp('^' + p.replace(/\{[^}]+\}/g, '[^/]+') + '$');
 const documented = Object.keys(spec.paths).map(toRe);
 
 // New in Cleanlist-ai/cleanse-api#2904 (actions, GTM agents, plays, webhooks,
-// sequences, tasks, Inbox, updates). Reported as pending until the public spec
-// has them; delete each line once it ships.
+// sequences, tasks, Inbox, updates, data pulls). Reported as pending until the
+// public spec has them; delete each line once it ships.
 const NEW_IN_2904 = [
   '/api/v2/actions',
   '/api/v2/actions/{name}',
@@ -44,6 +44,18 @@ const NEW_IN_2904 = [
   '/api/v2/batch/companies/lookup',
   // A WebSocket route: OpenAPI never lists it, so it stays here.
   '/api/v2/events/listen',
+  // Addendum 4: data pulls (jobs, job changes, LinkedIn, company signals, meetings).
+  '/api/v2/jobs/search',
+  '/api/v2/job-changes',
+  '/api/v2/job-changes/check',
+  '/api/v2/linkedin/posts/search',
+  '/api/v2/linkedin/posts/engagers',
+  '/api/v2/companies/by-technology',
+  '/api/v2/companies/signals',
+  '/api/v2/companies/buying-committee',
+  '/api/v2/companies/org-structure',
+  '/api/v2/meetings',
+  '/api/v2/meetings/{id}',
 ].map(toRe);
 
 const files = readdirSync('src', { recursive: true }).filter((f) => f.endsWith('.ts'));
