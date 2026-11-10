@@ -23,8 +23,11 @@ cleanlist login --api-key clapi_…   # or store an API key (Settings → API ke
 export CLEANLIST_API_KEY=clapi_…    # CI and scripts: nothing is stored
 ```
 
-One profile is one workspace. Add more with `cleanlist login --profile acme` and pick
-one with `--profile acme` or `CLEANLIST_PROFILE=acme`. `cleanlist whoami` always shows
+One profile is one workspace. Add more with `cleanlist login --profile acme`, switch with
+`cleanlist use acme`, or pick one per command with `--profile acme` or `CLEANLIST_PROFILE=acme`.
+`cleanlist profiles` marks the active one. A profile can also hold a test key
+(`cleanlist login --test --api-key clapi_test_…`); `--test` or `CLEANLIST_MODE=test` uses it,
+and the CLI prints TEST when the API answers in test mode. `cleanlist whoami` always shows
 which workspace you are acting in. Credentials live in the OS keychain (macOS Keychain,
 libsecret), or in `~/.config/cleanlist/credentials.json` (mode 0600) when there is none.
 
@@ -53,6 +56,15 @@ cleanlist plays run <playbook_id> --inputs '{"email":"jane@acme.com"}' --yes --w
 
 # Get events at your own URL (signed with Cleanlist-Signature)
 cleanlist webhooks add https://example.com/hooks/cleanlist --events play_run.completed,reply.received
+
+# Or stream them live to localhost, signed with this session's secret
+cleanlist listen --forward-to http://localhost:3000/webhooks
+
+# Up to 1,000 lookups in one call and one quote
+cat leads.csv | cleanlist batch people - --fields email,phone --yes
+
+# Your API requests, live
+cleanlist logs --status 4xx --follow
 
 # Anything Clu can do: list the actions, run one
 cleanlist actions list
@@ -92,7 +104,10 @@ and without either it exits **7** with the card, to confirm after the user says 
 
 Tables in a terminal, JSON when piped (`--json`, `--format jsonl|csv` to choose).
 Data goes to stdout, progress to stderr (`-q` silences it). Errors are JSON on stderr
-when piped, with a `fix` hint.
+when piped, with a `fix` hint. A file argument of `-` reads stdin. Rate limits (429) and
+server errors (5xx) are retried up to 3 tries, waiting as long as `Retry-After` says (up to
+a minute), and every write carries an `Idempotency-Key` reused by its own retries, so a
+retried write runs once.
 
 | Code | Meaning |
 |---|---|
@@ -122,6 +137,10 @@ conversation, and branch on exit codes.
 
 The CLI and the [Cleanlist MCP server](https://docs.cleanlist.ai/mcp) work well
 together: use the MCP to explore in chat, and the CLI to move data in bulk.
+`cleanlist mcp install claude-code|claude-desktop|cursor|codex` adds the hosted server
+(sign-in in the app), or a local one with `--api-key clapi_…`. It shows the change first.
+
+Shell completion: `eval "$(cleanlist completion zsh)"` (also `bash`, `fish`).
 
 ## Environment
 
@@ -129,6 +148,7 @@ together: use the MCP to explore in chat, and the CLI to move data in bulk.
 |---|---|
 | `CLEANLIST_API_KEY` | API key; overrides any saved login |
 | `CLEANLIST_PROFILE` | Profile to use |
+| `CLEANLIST_MODE` | `test` uses the profile's test key |
 | `CLEANLIST_HOST` | API base URL (default `https://api.cleanlist.ai`) |
 | `CLEANLIST_CONFIG_DIR` | Config directory (default `~/.config/cleanlist`) |
 | `CLEANLIST_NO_KEYCHAIN` | Store credentials in the file, not the keychain |

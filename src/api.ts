@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { type Credential, saveCredential } from './config.js';
 import { CliError, EXIT, exitCodeForStatus } from './errors.js';
 import { refresh } from './oauth.js';
@@ -10,8 +11,32 @@ export interface ApiResult<T = any> {
   data: T;
 }
 
-const RETRYABLE = new Set([429, 502, 503, 504]);
+const WRITES = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+/** Tries per request for 429, 5xx, a write still running elsewhere, and network errors. */
+export const MAX_TRIES = 3;
+/** Longer waits than this aren't worth blocking on: fail with exit 6 and say when to retry. */
+const MAX_WAIT_MS = 60_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * How long to wait before retry number `attempt` (0-based): the server's
+ * retry_after_ms, else Retry-After (seconds or an HTTP date), else 1s, 2s, 4s
+ * with jitter.
+ */
+export function retryDelayMs(attempt: number, retryAfter: string | null, body: any): number {
+  const ms = Number(body?.error?.retry_after_ms);
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  if (retryAfter) {
+    const secs = Number(retryAfter);
+    if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
+  return 1000 * 2 ** attempt * (0.75 + Math.random() / 2);
+}
+
+const retryable = (status: number, body: any) =>
+  status === 429 || status >= 500 || (status === 409 && body?.error?.code === 'idempotency_in_progress');
 
 /** Thin client for the public v2 API. Bodies go out and come back as the API defines them. */
 export class Api {
@@ -21,13 +46,19 @@ export class Api {
     private readonly profile: string,
     /** Where the credential came from; only stored credentials get refreshed and saved. */
     private readonly stored: boolean,
+    /** Called once, on the first response that says it ran in test mode. */
+    private readonly onTestMode?: () => void,
   ) {}
+
+  /** `test` once the server has answered `Cleanlist-Mode: test`. */
+  mode: 'live' | 'test' = 'live';
 
   get authType() {
     return this.cred?.type;
   }
 
-  private async token(): Promise<string> {
+  /** A bearer token for this credential, refreshed when an OAuth one is about to expire. */
+  async token(): Promise<string> {
     const c = this.cred;
     if (!c) {
       throw new CliError(
@@ -61,6 +92,8 @@ export class Api {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
     }
 
+    // One key per call, reused by its own retries, so a retried write runs once.
+    const idempotencyKey = WRITES.has(method.toUpperCase()) ? randomUUID() : undefined;
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const token = await this.token(); // outside the try: a missing credential isn't a network error
@@ -73,17 +106,22 @@ export class Api {
             accept: 'application/json',
             'user-agent': `cleanlist-cli/${VERSION} node/${process.version}`,
             ...(opts.body === undefined ? {} : { 'content-type': 'application/json' }),
+            ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
           },
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         });
       } catch (e) {
-        if (attempt < 2) {
-          await sleep(1000 * 2 ** attempt);
+        if (attempt + 1 < MAX_TRIES) {
+          await sleep(retryDelayMs(attempt, null, undefined));
           continue;
         }
         throw new CliError(EXIT.ERROR, `Couldn't reach ${url.origin}: ${(e as Error).message}`);
       }
 
+      if ((res.headers.get('cleanlist-mode') ?? res.headers.get('x-cleanlist-mode')) === 'test' && this.mode !== 'test') {
+        this.mode = 'test';
+        this.onTestMode?.();
+      }
       const text = await res.text();
       let data: any = text;
       try {
@@ -96,13 +134,16 @@ export class Api {
       // A stored OAuth token can be revoked or expire early: refresh once.
       if (res.status === 401 && this.cred?.type === 'oauth' && !refreshed) {
         refreshed = true;
+        attempt--; // not a retry of a failure
         await this.refresh();
         continue;
       }
-      if (RETRYABLE.has(res.status) && attempt < 3) {
-        const retryAfter = Number(res.headers.get('retry-after')) || data?.error?.retry_after_ms / 1000 || 2 ** attempt;
-        await sleep(Math.min(retryAfter, 30) * 1000);
-        continue;
+      if (retryable(res.status, data) && attempt + 1 < MAX_TRIES) {
+        const wait = retryDelayMs(attempt, res.headers.get('retry-after'), data);
+        if (wait <= MAX_WAIT_MS) {
+          await sleep(wait);
+          continue;
+        }
       }
       throw toError(res.status, data);
     }
