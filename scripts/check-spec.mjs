@@ -11,8 +11,8 @@ const toRe = (p) => new RegExp('^' + p.replace(/\{[^}]+\}/g, '[^/]+') + '$');
 const documented = Object.keys(spec.paths).map(toRe);
 
 // New in Cleanlist-ai/cleanse-api#2904 (actions, GTM agents, plays, webhooks,
-// sequences). Reported as pending until the public spec has them; delete each
-// line once it ships.
+// sequences, tasks, Inbox, updates). Reported as pending until the public spec
+// has them; delete each line once it ships.
 const NEW_IN_2904 = [
   '/api/v2/actions',
   '/api/v2/actions/{name}',
@@ -32,6 +32,12 @@ const NEW_IN_2904 = [
   '/api/v2/sequences/{id}',
   '/api/v2/sequences/{id}/enroll',
   '/api/v2/sequences/{id}/status',
+  '/api/v2/gtm-tasks',
+  '/api/v2/gtm-tasks/{task_id}',
+  '/api/v2/inbox/threads',
+  '/api/v2/inbox/threads/{thread_id}',
+  '/api/v2/inbox/threads/{thread_id}/reply',
+  '/api/v2/updates',
 ].map(toRe);
 
 const files = readdirSync('src', { recursive: true }).filter((f) => f.endsWith('.ts'));

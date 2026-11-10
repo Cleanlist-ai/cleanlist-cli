@@ -21,6 +21,10 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 - AI column: \`cleanlist smart-agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
 - GTM agents: \`cleanlist agents list\`, \`cleanlist agents run <agent_id> --dry-run\`
 - Play as a function: \`cleanlist plays list\`, then \`cleanlist plays run <playbook_id> --inputs '{...}' --dry-run\`
+- Your day: \`cleanlist updates --json\` (replies, tasks due, finished runs, approvals;
+  pass its \`until\` as the next \`--since\`), \`cleanlist tasks list --status due\`,
+  \`cleanlist tasks done|skip <task_id>\`, \`cleanlist inbox list --status needs_reply\`,
+  \`cleanlist inbox read <thread_id>\`
 - Anything else Clu can do: \`cleanlist actions list --json\`, then
   \`cleanlist actions run <name> --args '{...}' --json\`
 - Credits: \`cleanlist credits --json\`
@@ -33,8 +37,9 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 - \`actions run\` exit 7 means it returned a card (what it would do and the cost):
   show it, and only after the user says yes run the printed
   \`cleanlist actions confirm <card_id> --session <session_id>\`.
-- \`sequences enroll\`/\`status launch|resume\` exit 7 means real people would be
-  emailed: show who, and re-run with \`--yes\` only after the user approves.
+- \`sequences enroll\`/\`status launch|resume\` and \`inbox reply\` exit 7 means real
+  people would be emailed: show who (and the reply text), and re-run with \`--yes\`
+  only after the user approves.
 - Search seniority values: Owner / Partner, CXO, Vice President, Director,
   Manager, Senior, Entry, Training. Industry labels: \`people filters company_industries <word>\`.
 - Keep rows out of the conversation: write files with \`-o\`/\`--format csv\` and

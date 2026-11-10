@@ -1,4 +1,4 @@
-import { type Command, type Ctx, list, resolveList, sendApproved } from '../context.js';
+import { type Command, type Ctx, jsonOpt, list, resolveList, sendApproved } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -8,6 +8,21 @@ function sequenceId(ctx: Ctx): string {
   const id = ctx.args[0];
   if (!id) throw new CliError(EXIT.USAGE, 'Pass the sequence id.', 'See `cleanlist sequences list`.');
   return id;
+}
+
+/** A flag holding a JSON array of objects (`--changes '[{...}]'`). */
+function jsonArray(v: unknown, name: string): Record<string, unknown>[] | undefined {
+  if (v === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(v));
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `--${name} is not valid JSON: ${(e as Error).message}`);
+  }
+  if (!Array.isArray(parsed) || !parsed.length || parsed.some((c) => !c || typeof c !== 'object' || Array.isArray(c))) {
+    throw new CliError(EXIT.USAGE, `--${name} must be a JSON array of objects.`);
+  }
+  return parsed;
 }
 
 export const sequenceCommands: Command[] = [
@@ -25,6 +40,28 @@ export const sequenceCommands: Command[] = [
     summary: 'One sequence with its steps.',
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/sequences/${enc(sequenceId(ctx))}`)).data;
+    },
+  },
+  {
+    name: 'sequences edit',
+    args: '<id>',
+    summary: 'Change a sequence\'s steps, name or how Clu writes. On a launched sequence this publishes a new version.',
+    options: {
+      changes: { type: 'string', desc: 'Step changes as a JSON array of {op: add, update, delete or reorder, ...}; step ids from `sequences get`.' },
+      name: { type: 'string', desc: 'New name.' },
+      writing: { type: 'string', desc: 'How Clu writes its emails, as a JSON object.' },
+    },
+    examples: [
+      `cleanlist sequences edit <id> --changes '[{"op":"update","step_id":"<step_id>","fields":{"subject":"Quick question"}}]'`,
+      'cleanlist sequences edit <id> --name "Q4 ABM v2"',
+    ],
+    async run(ctx) {
+      const id = sequenceId(ctx);
+      const changes = jsonArray(ctx.opts.changes, 'changes');
+      const writing = jsonOpt(ctx.opts.writing, 'writing');
+      if (!changes && !ctx.opts.name && !writing) throw new CliError(EXIT.USAGE, 'Pass --changes, --name or --writing.');
+      const body = { changes, name: ctx.opts.name, writing };
+      return (await ctx.api.request('PATCH', `/api/v2/sequences/${enc(id)}`, { body })).data;
     },
   },
   {

@@ -54,6 +54,13 @@ cleanlist plays run <playbook_id> --inputs '{"email":"jane@acme.com"}' --yes --w
 # Get events at your own URL (signed with Cleanlist-Signature)
 cleanlist webhooks add https://example.com/hooks/cleanlist --events play_run.completed,reply.received
 
+# Your day: what's new, tasks, replies
+cleanlist updates
+cleanlist tasks list --status due
+cleanlist tasks done <task_id> --outcome Connected --note "Demo booked"
+cleanlist inbox list --status needs_reply
+cleanlist inbox reply <thread_id> --body "Tuesday at 2 works."
+
 # Anything Clu can do: list the actions, run one
 cleanlist actions list
 cleanlist actions run agents.get --args '{"agent_id":"..."}' --json
@@ -85,8 +92,9 @@ spends or sends returns a card and runs nothing. A terminal asks, `--yes` confir
 and without either it exits **7** with the card, to confirm after the user says yes:
 `cleanlist actions confirm <card_id> --session <session_id>`.
 
-`sequences enroll` and `sequences status launch|resume` email real people. Without
-`--yes` the API answers with who would be contacted and nothing is sent (exit 7).
+`sequences enroll`, `sequences status launch|resume` and `inbox reply` email real
+people. Without `--yes` the API answers with who would be contacted and nothing is
+sent: a terminal asks, anything else exits 7.
 
 ## Output and exit codes
 

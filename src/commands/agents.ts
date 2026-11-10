@@ -3,11 +3,11 @@ import { CliError, EXIT } from '../errors.js';
 import { waitForRun } from './plays.js';
 
 const enc = encodeURIComponent;
-const AGENT_COLUMNS = ['agent_id', 'name', 'status'];
+const AGENT_COLUMNS = ['id', 'name', 'status', 'playIds', 'modifiedAt'];
 
 function agentId(ctx: Ctx): string {
   const id = ctx.args[0];
-  if (!id) throw new CliError(EXIT.USAGE, 'Pass the agent_id.', 'See `cleanlist agents list`.');
+  if (!id) throw new CliError(EXIT.USAGE, 'Pass the agent id.', 'See `cleanlist agents list`.');
   return id;
 }
 
@@ -24,7 +24,7 @@ export const agentCommands: Command[] = [
   {
     name: 'agents list',
     summary: 'Your GTM agents.',
-    view: { rows: (d) => d.agents, columns: AGENT_COLUMNS },
+    view: { rows: (d) => d, columns: AGENT_COLUMNS },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/gtm-agents')).data;
     },
@@ -86,14 +86,15 @@ export const agentCommands: Command[] = [
       const playbookId = ctx.opts.play;
       const q = await confirmSpend(ctx, { tool: 'run_gtm_agent', agent_id: id, playbook_id: playbookId }, 'Run agent');
       const { data } = await ctx.api.post(`/api/v2/gtm-agents/${enc(id)}/run`, { playbook_id: playbookId, quote_id: q.quote_id });
-      return ctx.opts.wait ? waitForRun(ctx, data.run_id) : data;
+      // run_id is null when the run is queued behind one in progress: nothing to wait on yet.
+      return ctx.opts.wait && data.run_id ? waitForRun(ctx, data.run_id) : data;
     },
   },
   {
     name: 'agents runs',
     args: '<agent_id>',
     summary: 'An agent\'s runs. `plays results <run_id>` shows one run\'s records.',
-    view: { rows: (d) => d.runs, columns: ['run_id', 'status', 'records_total', 'records_completed', 'credits_used', 'created_at'] },
+    view: { rows: (d) => d, columns: ['id', 'status', 'recordsTotal', 'recordsCompleted', 'recordsFailed', 'creditsUsed', 'createdAt'] },
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/gtm-agents/${enc(agentId(ctx))}/runs`)).data;
     },

@@ -15,7 +15,7 @@ export function waitForRun(ctx: Ctx, runId: string) {
 }
 
 async function records(ctx: Ctx, runId: string) {
-  return (await ctx.api.get(`/api/v2/gtm-runs/${enc(runId)}/records`, { limit: ctx.opts.limit, cursor: ctx.opts.cursor })).data;
+  return (await ctx.api.get(`/api/v2/gtm-runs/${enc(runId)}/records`, { limit: ctx.opts.limit, cursor: ctx.opts.cursor, include: 'outputs' })).data;
 }
 
 const waitOpts = {
@@ -27,7 +27,7 @@ export const playCommands: Command[] = [
   {
     name: 'plays list',
     summary: 'Plays you can call like a function, with the inputs each takes.',
-    view: { rows: (d) => d.plays, columns: ['playbook_id', 'agent_id', 'name', 'inputs'] },
+    view: { rows: (d) => d, columns: ['playbook_id', 'agent_id', 'name', 'inputs'] },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/plays')).data;
     },
@@ -45,7 +45,8 @@ export const playCommands: Command[] = [
       const inputs = jsonOpt(ctx.opts.inputs, 'inputs') ?? {};
       const q = await confirmSpend(ctx, { tool: 'run_play', playbook_id: id, row_count: 1 }, 'Run play');
       const { data } = await ctx.api.post(`/api/v2/plays/${enc(id)}/run`, { inputs, quote_id: q.quote_id });
-      if (!ctx.opts.wait) return data;
+      // run_id is null when the run is queued behind one in progress: nothing to wait on yet.
+      if (!ctx.opts.wait || !data.run_id) return data;
       return { run: await waitForRun(ctx, data.run_id), records: await records(ctx, data.run_id) };
     },
   },
@@ -53,7 +54,7 @@ export const playCommands: Command[] = [
     name: 'plays results',
     args: '<run_id>',
     summary: 'Status and records of a play or agent run.',
-    options: { limit: { type: 'string', desc: 'Records per page.' }, cursor: { type: 'string', desc: 'Next page.' }, ...waitOpts },
+    options: { limit: { type: 'string', desc: 'Records per page (max 500).' }, cursor: { type: 'string', desc: 'Next page: the last answer\'s records.nextCursor.' }, ...waitOpts },
     async run(ctx) {
       const id = ctx.args[0];
       if (!id) throw new CliError(EXIT.USAGE, 'Pass the run_id.');

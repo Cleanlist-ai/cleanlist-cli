@@ -10,12 +10,15 @@ import { accountCommands } from './commands/account.js';
 import { actionCommands } from './commands/actions.js';
 import { agentCommands } from './commands/agents.js';
 import { enrichCommands } from './commands/enrich.js';
+import { inboxCommands } from './commands/inbox.js';
 import { listCommands } from './commands/lists.js';
 import { peopleCommands } from './commands/people.js';
 import { playCommands } from './commands/plays.js';
 import { sequenceCommands } from './commands/sequences.js';
 import { skillCommands } from './commands/skill.js';
 import { smartAgentCommands } from './commands/smart-agents.js';
+import { taskCommands } from './commands/tasks.js';
+import { updateCommands } from './commands/updates.js';
 import { webhookCommands } from './commands/webhooks.js';
 
 const COMMANDS: Command[] = [
@@ -27,6 +30,9 @@ const COMMANDS: Command[] = [
   ...agentCommands,
   ...playCommands,
   ...sequenceCommands,
+  ...taskCommands,
+  ...inboxCommands,
+  ...updateCommands,
   ...webhookCommands,
   ...actionCommands,
   ...skillCommands,
@@ -54,7 +60,7 @@ const GROUPS: [string, string][] = [
   ['Lists', 'lists'],
   ['AI columns', 'smart-agents'],
   ['GTM agents and plays', 'agents plays'],
-  ['Sequences', 'sequences'],
+  ['Sequences, tasks and Inbox', 'sequences tasks inbox updates'],
   ['Webhooks', 'webhooks'],
   ['Actions (every Clu tool)', 'actions'],
   ['Agent setup', 'skill'],

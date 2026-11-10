@@ -5,8 +5,11 @@ import { test } from 'node:test';
 import { toError } from '../dist/api.js';
 import { actionCommands } from '../dist/commands/actions.js';
 import { agentCommands } from '../dist/commands/agents.js';
+import { inboxCommands } from '../dist/commands/inbox.js';
 import { playCommands } from '../dist/commands/plays.js';
 import { sequenceCommands } from '../dist/commands/sequences.js';
+import { taskCommands } from '../dist/commands/tasks.js';
+import { updateCommands } from '../dist/commands/updates.js';
 import { jsonOpt, sendApproved } from '../dist/context.js';
 import { EXIT } from '../dist/errors.js';
 
@@ -16,8 +19,8 @@ const quote = { quote_id: 'qte_1', estimated_cost: 40, available_credits: 1000, 
 /** A ctx whose API records every call and answers from `routes` (path → body or function). */
 function fakeCtx(args, opts, routes) {
   const calls = [];
-  const answer = async (method, path, body) => {
-    calls.push({ method, path, body });
+  const answer = async (method, path, body, query) => {
+    calls.push({ method, path, body, ...(query ? { query } : {}) });
     const r = routes[`${method} ${path}`];
     if (r === undefined) throw new Error(`unexpected ${method} ${path}`);
     return { status: 200, data: typeof r === 'function' ? r(body) : r };
@@ -28,7 +31,7 @@ function fakeCtx(args, opts, routes) {
     opts: { 'no-input': true, ...opts },
     log() {},
     api: {
-      get: (path) => answer('GET', path),
+      get: (path, query) => answer('GET', path, undefined, query),
       post: (path, body) => answer('POST', path, body),
       request: (method, path, o = {}) => answer(method, path, o.body),
     },
@@ -148,6 +151,122 @@ test('sequences enroll takes exactly one of --leads and --list; status must be l
   await assert.rejects(enroll.run(fakeCtx(['s1'], {}, {})), (e) => e.exitCode === EXIT.USAGE);
   await assert.rejects(enroll.run(fakeCtx(['s1'], { leads: ['l1'], list: 'x' }, {})), (e) => e.exitCode === EXIT.USAGE);
   await assert.rejects(cmd(sequenceCommands, 'sequences status').run(fakeCtx(['s1', 'delete'], {}, {})), (e) => e.exitCode === EXIT.USAGE);
+});
+
+test('sequences edit sends changes, name and writing; refuses bad or empty edits before any call', async () => {
+  const edit = cmd(sequenceCommands, 'sequences edit');
+  const changes = [{ op: 'update', step_id: 'st_1', fields: { subject: 'Hi' } }];
+  const ctx = fakeCtx(['s1'], { changes: JSON.stringify(changes), name: 'v2' }, { 'PATCH /api/v2/sequences/s1': { ok: true } });
+  await edit.run(ctx);
+  assert.deepEqual(ctx.calls[0].body, { changes, name: 'v2', writing: undefined });
+  for (const opts of [{}, { changes: '{"op":"add"}' }, { changes: '[]' }, { changes: '[1]' }, { changes: 'nope' }, { writing: '[1]' }]) {
+    const c = fakeCtx(['s1'], opts, {});
+    await assert.rejects(edit.run(c), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(c.calls.length, 0);
+  }
+});
+
+// agents-rest responses: bare arrays, camelCase runs, run_id null when queued
+test('agents list, agents runs and plays list read bare arrays', () => {
+  const agents = [{ id: 'a1', name: 'Inbound', status: 'active' }];
+  assert.deepEqual(cmd(agentCommands, 'agents list').view.rows(agents), agents);
+  assert.ok(cmd(agentCommands, 'agents runs').view.columns.includes('recordsTotal'));
+  assert.deepEqual(cmd(playCommands, 'plays list').view.rows([{ playbook_id: 'pb_1' }]), [{ playbook_id: 'pb_1' }]);
+});
+
+test('agents run --wait on a queued run returns without polling; plays run --wait asks for outputs', async () => {
+  const queued = { run_id: null, queued: true, reason: 'A run is in progress.' };
+  const a = fakeCtx(['a1'], { yes: true, wait: true }, { 'POST /api/v2/credits/estimate': quote, 'POST /api/v2/gtm-agents/a1/run': queued });
+  assert.deepEqual(await cmd(agentCommands, 'agents run').run(a), queued);
+  assert.equal(a.calls.length, 2);
+  const p = fakeCtx(['pb_1'], { yes: true, wait: true }, {
+    'POST /api/v2/credits/estimate': quote,
+    'POST /api/v2/plays/pb_1/run': { run_id: 'run_1' },
+    'GET /api/v2/gtm-runs/run_1': { id: 'run_1', status: 'completed' },
+    'GET /api/v2/gtm-runs/run_1/records': { records: [], nextCursor: null },
+  });
+  await cmd(playCommands, 'plays run').run(p);
+  assert.equal(p.calls.at(-1).query.include, 'outputs');
+});
+
+// tasks
+test('tasks list passes status, a normalized type and limit; refuses a bad status before any call', async () => {
+  const ctx = fakeCtx([], { status: 'due', type: 'call', limit: '10' }, { 'GET /api/v2/gtm-tasks': { tasks: [] } });
+  await cmd(taskCommands, 'tasks list').run(ctx);
+  assert.deepEqual(ctx.calls[0].query, { status: 'due', task_type: 'Call', limit: 10 });
+  for (const opts of [{ status: 'later' }, { type: 'email' }, { limit: '-1' }]) {
+    const c = fakeCtx([], opts, {});
+    await assert.rejects(cmd(taskCommands, 'tasks list').run(c), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(c.calls.length, 0);
+  }
+});
+
+test('tasks done and skip PATCH the task with done or skipped', async () => {
+  const routes = { 'PATCH /api/v2/gtm-tasks/t1': (b) => b };
+  const done = fakeCtx(['t1'], { outcome: 'Connected', note: 'Booked' }, routes);
+  await cmd(taskCommands, 'tasks done').run(done);
+  assert.deepEqual(done.calls[0].body, { status: 'done', outcome: 'Connected', note: 'Booked' });
+  const skip = fakeCtx(['t1'], { reason: 'Out of office' }, routes);
+  await cmd(taskCommands, 'tasks skip').run(skip);
+  assert.deepEqual(skip.calls[0].body, { status: 'skipped', note: 'Out of office' });
+  await assert.rejects(cmd(taskCommands, 'tasks done').run(fakeCtx([], {}, {})), (e) => e.exitCode === EXIT.USAGE);
+});
+
+test('tasks create needs --lead and a YYYY-MM-DD --due; a reply task cannot be created', async () => {
+  const create = cmd(taskCommands, 'tasks create');
+  const ctx = fakeCtx([], { lead: 'l1', due: '2026-11-12', type: 'manual' }, { 'POST /api/v2/gtm-tasks': { id: 't1' } });
+  await create.run(ctx);
+  assert.deepEqual(ctx.calls[0].body, { lead_id: 'l1', task_type: 'Manual', due_at: '2026-11-12', note: undefined });
+  for (const opts of [{ due: '2026-11-12' }, { lead: 'l1' }, { lead: 'l1', due: 'tomorrow' }, { lead: 'l1', due: '2026-11-12', type: 'Reply' }]) {
+    const c = fakeCtx([], opts, {});
+    await assert.rejects(create.run(c), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(c.calls.length, 0);
+  }
+});
+
+// inbox
+const replyNeedsApproval = () => {
+  throw toError(409, { error: { code: 'approval_required', problem: 'This reply emails jane@acme.com from rep@us.com.', to_email: 'jane@acme.com' } });
+};
+
+test('inbox reply: without --yes and no TTY it exits 7 naming the recipient and never sends approved', async () => {
+  const ctx = fakeCtx(['th1'], { body: 'Tuesday works.' }, { 'POST /api/v2/inbox/threads/th1/reply': (b) => (b.approved ? { sent: true } : replyNeedsApproval()) });
+  await assert.rejects(cmd(inboxCommands, 'inbox reply').run(ctx), (e) => e.exitCode === EXIT.CONFIRM && /jane@acme\.com/.test(e.message));
+  assert.deepEqual(ctx.calls.map((c) => c.body.approved), [false]);
+});
+
+test('inbox reply: --yes sends the body approved with a request_id', async () => {
+  const ctx = fakeCtx(['th1'], { body: 'Tuesday works.', yes: true }, { 'POST /api/v2/inbox/threads/th1/reply': { sent: true } });
+  await cmd(inboxCommands, 'inbox reply').run(ctx);
+  const { body } = ctx.calls[0];
+  assert.equal(body.approved, true);
+  assert.equal(body.body, 'Tuesday works.');
+  assert.match(body.request_id, /^[A-Za-z0-9_-]{8,128}$/);
+});
+
+test('inbox reply needs exactly one non-empty body; inbox list checks --status and --since', async () => {
+  for (const opts of [{}, { body: '  ' }, { body: 'a', 'body-file': 'x.txt' }]) {
+    const c = fakeCtx(['th1'], { yes: true, ...opts }, {});
+    await assert.rejects(cmd(inboxCommands, 'inbox reply').run(c), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(c.calls.length, 0);
+  }
+  for (const opts of [{ status: 'unread' }, { since: '11/09/2026' }]) {
+    const c = fakeCtx([], opts, {});
+    await assert.rejects(cmd(inboxCommands, 'inbox list').run(c), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(c.calls.length, 0);
+  }
+  const ok = fakeCtx([], { status: 'needs_reply', since: '2026-11-09' }, { 'GET /api/v2/inbox/threads': { threads: [] } });
+  await cmd(inboxCommands, 'inbox list').run(ok);
+  assert.deepEqual(ok.calls[0].query, { status: 'needs_reply', since: '2026-11-09', q: undefined, limit: undefined, offset: undefined });
+});
+
+test('inbox done archives the thread; updates passes --since', async () => {
+  const done = fakeCtx(['th1'], {}, { 'PATCH /api/v2/inbox/threads/th1': { id: 'th1' } });
+  await cmd(inboxCommands, 'inbox done').run(done);
+  assert.deepEqual(done.calls[0].body, { status: 'done' });
+  const up = fakeCtx([], { since: '2026-11-10T09:00:00Z' }, { 'GET /api/v2/updates': { since: 'a', until: 'b' } });
+  assert.equal((await cmd(updateCommands, 'updates').run(up)).until, 'b');
+  assert.deepEqual(up.calls[0].query, { since: '2026-11-10T09:00:00Z' });
 });
 
 // end to end through the binary: exit 7 puts the card on stdout
