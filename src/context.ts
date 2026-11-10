@@ -114,7 +114,42 @@ export async function confirmAction(ctx: Ctx, question: string): Promise<void> {
   throw new CliError(EXIT.CONFIRM, `Confirmation required: ${question}`, 'Re-run with --yes.');
 }
 
-const TERMINAL = new Set(['completed', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
+/**
+ * For routes that reach real people (sequence launch, resume, enroll). Without
+ * --yes the call goes out unapproved; the API runs it if nobody is contacted,
+ * or answers 409 approval_required with who would be. Then: a TTY asks, and
+ * anything else exits 7 with that summary. --yes sends `approved: true`.
+ */
+export async function sendApproved(ctx: Ctx, path: string, body: Record<string, unknown>): Promise<unknown> {
+  if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: the API says who would be contacted and nothing is sent.');
+  if (ctx.opts.yes) return (await ctx.api.post(path, { ...body, approved: true })).data;
+  try {
+    return (await ctx.api.post(path, { ...body, approved: false })).data;
+  } catch (e) {
+    if (!(e instanceof CliError) || e.apiCode !== 'approval_required') throw e;
+    if (interactive(ctx.opts)) {
+      ctx.log(e.message);
+      if (await ask('Approve?')) return (await ctx.api.post(path, { ...body, approved: true })).data;
+      throw new CliError(EXIT.CONFIRM, 'Cancelled. Nothing was sent.');
+    }
+    throw new CliError(EXIT.CONFIRM, `Approval required: ${e.message}`, 'Show this to the user. Re-run with --yes only after they approve it.', e.detail);
+  }
+}
+
+/** A flag holding a JSON object (`--args '{"a":1}'`). */
+export function jsonOpt(v: unknown, name: string): Record<string, unknown> | undefined {
+  if (v === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(v));
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `--${name} is not valid JSON: ${(e as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new CliError(EXIT.USAGE, `--${name} must be a JSON object.`);
+  return parsed as Record<string, unknown>;
+}
+
+const TERMINAL = new Set(['completed', 'completed_with_errors', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
 export const isTerminal = (status?: string) => TERMINAL.has(String(status ?? '').toLowerCase());
 
 /** Duration like 90s, 10m, 1h → ms. */

@@ -18,7 +18,11 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
   then save: \`cleanlist lists add "<list>" --from-task <task_id>\`
 - Export a list: \`cleanlist lists export "<list>" -o out.csv\`
 - Read a list: \`cleanlist lists rows "<list>" --all --format jsonl\`
-- AI column: \`cleanlist agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
+- AI column: \`cleanlist smart-agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
+- GTM agents: \`cleanlist agents list\`, \`cleanlist agents run <agent_id> --dry-run\`
+- Play as a function: \`cleanlist plays list\`, then \`cleanlist plays run <playbook_id> --inputs '{...}' --dry-run\`
+- Anything else Clu can do: \`cleanlist actions list --json\`, then
+  \`cleanlist actions run <name> --args '{...}' --json\`
 - Credits: \`cleanlist credits --json\`
 
 ## Rules
@@ -26,6 +30,11 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
   user the cost and any CRM note (enriched people may be pushed to their CRM),
   and only re-run with \`--yes\` after they approve. A quote is not approval.
   Use \`--max-credits N\` as a ceiling.
+- \`actions run\` exit 7 means it returned a card (what it would do and the cost):
+  show it, and only after the user says yes run the printed
+  \`cleanlist actions confirm <card_id> --session <session_id>\`.
+- \`sequences enroll\`/\`status launch|resume\` exit 7 means real people would be
+  emailed: show who, and re-run with \`--yes\` only after the user approves.
 - Search seniority values: Owner / Partner, CXO, Vice President, Director,
   Manager, Senior, Entry, Training. Industry labels: \`people filters company_industries <word>\`.
 - Keep rows out of the conversation: write files with \`-o\`/\`--format csv\` and

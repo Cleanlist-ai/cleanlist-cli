@@ -7,13 +7,30 @@ import { CliError, EXIT } from './errors.js';
 import { type Format, print } from './output.js';
 import { VERSION } from './version.js';
 import { accountCommands } from './commands/account.js';
+import { actionCommands } from './commands/actions.js';
 import { agentCommands } from './commands/agents.js';
 import { enrichCommands } from './commands/enrich.js';
 import { listCommands } from './commands/lists.js';
 import { peopleCommands } from './commands/people.js';
+import { playCommands } from './commands/plays.js';
+import { sequenceCommands } from './commands/sequences.js';
 import { skillCommands } from './commands/skill.js';
+import { smartAgentCommands } from './commands/smart-agents.js';
+import { webhookCommands } from './commands/webhooks.js';
 
-const COMMANDS: Command[] = [...accountCommands, ...peopleCommands, ...enrichCommands, ...listCommands, ...agentCommands, ...skillCommands];
+const COMMANDS: Command[] = [
+  ...accountCommands,
+  ...peopleCommands,
+  ...enrichCommands,
+  ...listCommands,
+  ...smartAgentCommands,
+  ...agentCommands,
+  ...playCommands,
+  ...sequenceCommands,
+  ...webhookCommands,
+  ...actionCommands,
+  ...skillCommands,
+];
 
 const GLOBAL: Record<string, OptSpec> = {
   json: { type: 'boolean', desc: 'Same as --format json.' },
@@ -35,7 +52,11 @@ const GROUPS: [string, string][] = [
   ['People', 'people'],
   ['Enrich', 'enrich'],
   ['Lists', 'lists'],
-  ['Smart agents', 'agents'],
+  ['AI columns', 'smart-agents'],
+  ['GTM agents and plays', 'agents plays'],
+  ['Sequences', 'sequences'],
+  ['Webhooks', 'webhooks'],
+  ['Actions (every Clu tool)', 'actions'],
   ['Agent setup', 'skill'],
 ];
 
@@ -93,7 +114,7 @@ function mainHelp(): string {
     const cmds = COMMANDS.filter((c) => names.split(' ').some((n) => c.name === n || c.name.startsWith(n + ' ')));
     return `${title}:\n${cmds.map((c) => `  ${c.name.padEnd(22)} ${c.summary}`).join('\n')}`;
   });
-  return `Cleanlist CLI ${VERSION}: find people, enrich CSVs and lists, run smart agents, export.
+  return `Cleanlist CLI ${VERSION}: find people, enrich CSVs and lists, run agents and plays, export.
 
 Usage: cleanlist <command> [flags]
 
@@ -117,8 +138,9 @@ function fail(e: CliError, format: Format): never {
     const { error: _e, ...rest } = e.detail ?? {};
     process.stderr.write(JSON.stringify({ error: { ...env, message: e.message, fix: e.fix ?? env.fix, exit_code: e.exitCode, ...rest } }) + '\n');
   }
-  // Exit 7 also puts the quote on stdout, so a caller reading stdout can show the cost.
-  if (e.exitCode === EXIT.CONFIRM && e.detail?.quote) process.stdout.write(JSON.stringify(e.detail.quote, null, 2) + '\n');
+  // Exit 7 also puts the quote (or action card) on stdout, so a caller reading stdout can show the cost.
+  const pending = e.detail?.quote ?? e.detail?.card;
+  if (e.exitCode === EXIT.CONFIRM && pending) process.stdout.write(JSON.stringify(pending, null, 2) + '\n');
   process.exit(e.exitCode);
 }
 

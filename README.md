@@ -45,7 +45,18 @@ cleanlist lists export "Q4 ABM" -o q4.csv
 cleanlist lists rows "Q4 ABM" --all --format jsonl
 
 # Fill an AI column on the first 10 rows
-cleanlist agents run "Q4 ABM" --column Hook --prompt "One-line opener about {{company}}" --rows 10 --yes --wait
+cleanlist smart-agents run "Q4 ABM" --column Hook --prompt "One-line opener about {{company}}" --rows 10 --yes --wait
+
+# Run a GTM agent, or call a play like a function and get its records
+cleanlist agents run <agent_id> --yes --wait
+cleanlist plays run <playbook_id> --inputs '{"email":"jane@acme.com"}' --yes --wait
+
+# Get events at your own URL (signed with Cleanlist-Signature)
+cleanlist webhooks add https://example.com/hooks/cleanlist --events play_run.completed,reply.received
+
+# Anything Clu can do: list the actions, run one
+cleanlist actions list
+cleanlist actions run agents.get --args '{"agent_id":"..."}' --json
 
 # Credits and usage
 cleanlist credits
@@ -57,8 +68,8 @@ and examples. Lists can be named by id or exact name.
 
 ## Paying for things
 
-Commands that spend credits (`enrich *`, `agents run`) first ask the API for a
-signed quote and show it:
+Commands that spend credits (`enrich *`, `smart-agents run`, `agents run`, `plays run`)
+first ask the API for a signed quote and show it:
 
 - in a terminal, you're asked `Spend 1,240 credits? [y/N]`;
 - with `--yes`, it goes ahead;
@@ -68,6 +79,14 @@ signed quote and show it:
   (exit 5).
 
 Credits are charged exactly as through the API.
+
+`actions run` works the same way with a card instead of a quote: an action that
+spends or sends returns a card and runs nothing. A terminal asks, `--yes` confirms,
+and without either it exits **7** with the card, to confirm after the user says yes:
+`cleanlist actions confirm <card_id> --session <session_id>`.
+
+`sequences enroll` and `sequences status launch|resume` email real people. Without
+`--yes` the API answers with who would be contacted and nothing is sent (exit 7).
 
 ## Output and exit codes
 
