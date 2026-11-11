@@ -17,7 +17,8 @@ export function desktopConfigPath(platform = process.platform, home = homedir(),
   return join(env.XDG_CONFIG_HOME || join(home, '.config'), 'Claude', 'claude_desktop_config.json');
 }
 
-const mask = (s: string, key?: string) => (key ? s.split(key).join(`${key.slice(0, 10)}…${key.slice(-4)}`) : s);
+/** Every API key in `s` cut to its start and end, so a key already in a config doesn't print either. */
+const mask = (s: string) => s.replace(/clapi_[^\s"'\\]+/g, (k) => `${k.slice(0, 10)}…${k.slice(-4)}`);
 
 /** `{"mcpServers": {"cleanlist": entry}}` merged into a JSON config, other servers untouched. */
 export function mergeJsonConfig(existing: string | undefined, entry: Record<string, unknown>, path: string): string {
@@ -117,7 +118,7 @@ export const mcpCommands: Command[] = [
         const args = key
           ? ['mcp', 'add', '--scope', 'user', 'cleanlist', '-e', `CLEANLIST_API_KEY=${key}`, '--', STDIO.command, ...STDIO.args]
           : ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'cleanlist', MCP_URL];
-        ctx.log(`Will run: claude ${mask(args.join(' '), key)}`);
+        ctx.log(`Will run: claude ${mask(args.join(' '))}`);
         await confirmAction(ctx, 'Add Cleanlist to Claude Code?');
         const add = () => execFileSync('claude', args, { stdio: ['ignore', 'ignore', 'pipe'] });
         try {
@@ -132,8 +133,8 @@ export const mcpCommands: Command[] = [
           }
         } catch (e) {
           const err = e as NodeJS.ErrnoException & { stderr?: Buffer };
-          if (err.code === 'ENOENT') throw new CliError(EXIT.ERROR, 'The `claude` command is not on PATH.', `Install Claude Code, or run: claude ${mask(args.join(' '), key)}`);
-          throw new CliError(EXIT.ERROR, `claude mcp add failed: ${mask(err.stderr?.toString().trim() || err.message, key)}`);
+          if (err.code === 'ENOENT') throw new CliError(EXIT.ERROR, 'The `claude` command is not on PATH.', `Install Claude Code, or run: claude ${mask(args.join(' '))}`);
+          throw new CliError(EXIT.ERROR, `claude mcp add failed: ${mask(err.stderr?.toString().trim() || err.message)}`);
         }
         ctx.log(key ? 'Added. Start a new Claude Code session to use it.' : 'Added. In Claude Code, run /mcp and sign in to Cleanlist.');
         return { host, mode, installed: true };
@@ -155,7 +156,7 @@ export const mcpCommands: Command[] = [
         ctx.log(`${path} already has this Cleanlist server.`);
         return { host, mode, path, installed: true, changed: false };
       }
-      ctx.log(`${existsSync(path) ? 'Changes to' : 'New file'} ${path}:\n${mask(lineDiff(before, next), key)}`);
+      ctx.log(`${existsSync(path) ? 'Changes to' : 'New file'} ${path}:\n${mask(lineDiff(before, next))}`);
       await confirmAction(ctx, `Write ${path}?`);
       writeConfig(path, next, key);
       const after = {

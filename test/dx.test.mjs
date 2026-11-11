@@ -10,7 +10,7 @@ import { Api, retryDelayMs } from '../dist/api.js';
 import { batchCommands, parseItems } from '../dist/commands/batch.js';
 import { completionScript } from '../dist/commands/completion.js';
 import { eventCommands, signature, sinceOpt } from '../dist/commands/events.js';
-import { codexBlock, lineDiff, MCP_URL, mergeCodexConfig, mergeJsonConfig } from '../dist/commands/mcp.js';
+import { codexBlock, desktopConfigPath, lineDiff, MCP_URL, mergeCodexConfig, mergeJsonConfig } from '../dist/commands/mcp.js';
 import { decodeFrames, encodeFrame } from '../dist/ws.js';
 import { EXIT } from '../dist/errors.js';
 
@@ -548,6 +548,26 @@ test('cli: mcp install --api-key - reads the piped key, and a key goes into an e
   assert.equal(JSON.parse(readFileSync(path, 'utf8')).mcpServers.cleanlist.env.CLEANLIST_API_KEY, 'clapi_piped1234');
   assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.equal((await run(['mcp', 'install', 'cursor', '--api-key', '-', '--yes'], { HOME: home }, 'nope\n')).code, EXIT.USAGE);
+});
+
+test('cli: mcp install masks a key already in the config, in an oauth or a new-key install', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'cl-home-'));
+  const old = 'clapi_live_oldsecret5678';
+  const cursor = join(home, '.cursor', 'mcp.json');
+  const codex = join(home, '.codex', 'config.toml');
+  for (const p of [cursor, codex]) mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(cursor, JSON.stringify({ mcpServers: { cleanlist: { command: 'npx', env: { CLEANLIST_API_KEY: old } } } }));
+  writeFileSync(codex, codexBlock(old));
+  for (const args of [['cursor'], ['cursor', '--api-key', 'clapi_live_newsecret9999'], ['codex', '--yes'], ['claude-desktop']]) {
+    if (args[0] === 'claude-desktop') {
+      const path = desktopConfigPath(process.platform, home, {});
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify({ mcpServers: { cleanlist: { command: 'npx', env: { CLEANLIST_API_KEY: old } } } }));
+    }
+    const out = await run(['mcp', 'install', ...args], { HOME: home });
+    assert.match(out.stderr, /^- .*clapi_live…5678/m, args.join(' '));
+    assert.doesNotMatch(out.stderr + out.stdout, /oldsecret|newsecret/, args.join(' '));
+  }
 });
 
 test('cli: mcp install claude-code runs claude mcp add with the hosted URL', async () => {
