@@ -81,6 +81,12 @@ test('actions run: a card above --max-credits exits 5 even with --yes', async ()
   assert.equal(ctx.calls.length, 1);
 });
 
+test('actions run: a non-numeric --max-credits exits 2 and never confirms the card', async () => {
+  const ctx = fakeCtx(['agents.set_status'], { yes: true, 'max-credits': '1,000' }, actionRoutes);
+  await assert.rejects(cmd(actionCommands, 'actions run').run(ctx), (e) => e.exitCode === EXIT.USAGE);
+  assert.deepEqual(ctx.calls.map((c) => c.path), ['/api/v2/actions/agents.set_status']);
+});
+
 test('actions run: a plain result is returned as is; --dry-run and bad --args are refused before any call', async () => {
   const result = { action: 'agents.get', session_id: 'ses_1', kind: 'result', result: { id: 'a1' } };
   const ctx = fakeCtx(['agents.get'], {}, { 'POST /api/v2/actions/agents.get': result });

@@ -28,12 +28,7 @@ function values(ctx: Ctx, flag: string, fileFlag: string, split = true): string[
 const domainsOf = (ctx: Ctx) =>
   values(ctx, 'company-domain', 'domains-file')?.map((d) => d.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase());
 
-function companyCriteria(ctx: Ctx): Record<string, unknown> | undefined {
-  const v = ctx.opts['company-criteria'];
-  if (v === undefined) return undefined;
-  // Inline JSON or a file / stdin holding it.
-  return jsonOpt(String(v).trim().startsWith('{') ? v : readInput(v), 'company-criteria');
-}
+const companyCriteria = (ctx: Ctx) => jsonArg(ctx, 'company-criteria');
 
 /**
  * Big pulls answer with a task handle instead of rows. The task read-back is
@@ -44,6 +39,37 @@ function withRows(ctx: Ctx, data: any, people = false): any {
     ctx.log(`Started as task ${data.task_id}.${people ? ` Save the people: cleanlist lists add <list> --from-task ${data.task_id}` : ''}`);
   }
   return data;
+}
+
+/**
+ * Routes that price the request themselves (jobs, job changes, company
+ * signals): ask without a quote_id, quote exactly the `details.estimate` the
+ * 400 quote_required names, then send the same body with the quote_id. A
+ * request with nothing to charge comes back on the first call.
+ */
+async function routeQuoted(ctx: Ctx, path: string, body: Record<string, unknown>, what: string): Promise<any> {
+  let estimate: Record<string, unknown> | undefined;
+  try {
+    return (await ctx.api.post(path, body)).data;
+  } catch (e) {
+    estimate = e instanceof CliError && e.apiCode === 'quote_required' ? (e.detail as any)?.error?.details?.estimate : undefined;
+    if (!estimate) throw e;
+  }
+  const q = await confirmSpend(ctx, estimate, what);
+  return (await ctx.api.post(path, { ...body, quote_id: q.quote_id })).data;
+}
+
+/** Social and technology pulls: the quote signs the route body itself, as `filters`. */
+async function filtersQuoted(ctx: Ctx, tool: string, path: string, body: Record<string, unknown>, what: string): Promise<any> {
+  const q = await confirmSpend(ctx, { tool, filters: body }, what);
+  return (await ctx.api.post(path, { ...body, quote_id: q.quote_id })).data;
+}
+
+/** A JSON-object flag: inline JSON, or a file / stdin holding it. */
+function jsonArg(ctx: Ctx, flag: string): Record<string, unknown> | undefined {
+  const v = ctx.opts[flag];
+  if (v === undefined) return undefined;
+  return jsonOpt(String(v).trim().startsWith('{') ? v : readInput(v), flag);
 }
 
 const limitOpt = (dflt: number, max: number) => ({ limit: { type: 'string' as const, desc: `How many (default ${dflt}, up to ${max}).` } });
@@ -60,6 +86,26 @@ const criteriaOpts = {
   'company-criteria': { type: 'string' as const, desc: 'Company filters as JSON, or a JSON file (or -), as in `search companies`.' },
 };
 
+const SIGNAL_TYPES = ['job_posting', 'news', 'funding', 'headcount'];
+
+/**
+ * --persona "Label=Title,Title" (one person), or a JSON object
+ * {label, titles, exclude_titles?, count?}. Up to 3.
+ */
+function personas(ctx: Ctx): Record<string, unknown>[] | undefined {
+  const raw = list(ctx.opts.persona, false);
+  if (!raw) return undefined;
+  if (raw.length > 3) throw new CliError(EXIT.USAGE, 'Pass at most 3 --persona groups.');
+  return raw.map((p) => {
+    if (p.startsWith('{')) return jsonOpt(p, 'persona')!;
+    const at = p.indexOf('=');
+    const label = at > 0 ? p.slice(0, at).trim() : '';
+    const titles = at > 0 ? list(p.slice(at + 1)) : undefined;
+    if (!label || !titles) throw new CliError(EXIT.USAGE, `--persona takes "Label=Title,Title", not "${p}".`, 'e.g. --persona "Sales leadership=VP Sales,CRO"');
+    return { label, titles };
+  });
+}
+
 const MEETING_COLUMNS = ['meeting_id', 'title', 'started_at', 'source', 'account_domain', 'attendees'];
 
 export const dataCommands: Command[] = [
@@ -73,7 +119,7 @@ export const dataCommands: Command[] = [
       location: { type: 'string', multiple: true, desc: 'Posting location (repeatable).' },
       'posted-within-days': { type: 'string', desc: 'Only postings from the last N days.' },
       ...criteriaOpts,
-      ...limitOpt(25, 1000),
+      ...limitOpt(25, 500),
     },
     view: view(['title', 'company_name', 'company_domain', 'location', 'posted_at', 'url']),
     examples: [
@@ -88,14 +134,12 @@ export const dataCommands: Command[] = [
         company_criteria: companyCriteria(ctx),
         locations: list(ctx.opts.location, false),
         posted_within_days: intOpt(ctx.opts['posted-within-days'], 'posted-within-days'),
-        limit: limitOf(ctx, 25, 1000),
+        limit: limitOf(ctx, 25, 500),
       };
       if (!body.titles && !body.keywords && !body.company_domains && !body.company_criteria) {
         throw new CliError(EXIT.USAGE, 'Add --title, --keyword, --company-domain or --company-criteria.', 'See `cleanlist jobs search --help`.');
       }
-      const q = await confirmSpend(ctx, { tool: 'job_postings_search', row_count: body.limit }, 'Job postings search');
-      const { data } = await ctx.api.post('/api/v2/jobs/search', { ...body, quote_id: q.quote_id });
-      return withRows(ctx, data);
+      return withRows(ctx, await routeQuoted(ctx, '/api/v2/jobs/search', body, 'Job postings search'));
     },
   },
   {
@@ -125,9 +169,7 @@ export const dataCommands: Command[] = [
       const leadIds = list(ctx.opts.lead);
       const urls = values(ctx, 'linkedin', 'file');
       if (!leadIds === !urls) throw new CliError(EXIT.USAGE, 'Pass --lead or --linkedin/--file (one kind, not both).');
-      const n = (leadIds ?? urls!).length;
-      const q = await confirmSpend(ctx, { tool: 'job_change_check', row_count: n }, 'Job change check');
-      const { data } = await ctx.api.post('/api/v2/job-changes/check', { lead_ids: leadIds, linkedin_urls: urls, quote_id: q.quote_id });
+      const data = await routeQuoted(ctx, '/api/v2/job-changes/check', { lead_ids: leadIds, linkedin_urls: urls }, 'Job change check');
       return withRows(ctx, data, true);
     },
   },
@@ -136,15 +178,16 @@ export const dataCommands: Command[] = [
     args: '<topic>',
     summary: 'Recent LinkedIn posts on a topic, through your connected LinkedIn account. Free.',
     options: {
-      account: { type: 'string', desc: 'Your LinkedIn account id, when you have more than one connected.' },
+      account: { type: 'string', desc: 'Your connected LinkedIn account id (required).' },
       days: { type: 'string', desc: 'How recent: 1, 7 (default) or 30.' },
       ...limitOpt(10, 20),
     },
     view: view(['author', 'author_headline', 'posted', 'reactions', 'comments', 'url']),
-    examples: ['cleanlist linkedin posts "cold email reply rates" --days 30'],
+    examples: ['cleanlist linkedin posts "cold email reply rates" --account <account_id> --days 30'],
     async run(ctx) {
       const keywords = ctx.args.join(' ').trim();
       if (!keywords) throw new CliError(EXIT.USAGE, 'Name the topic, e.g. cleanlist linkedin posts "revops hiring".');
+      if (!ctx.opts.account) throw new CliError(EXIT.USAGE, 'Pass --account, your connected LinkedIn account id.', 'Connect one in Settings > Sequencing.');
       const days = intOpt(ctx.opts.days, 'days') ?? 7;
       if (![1, 7, 30].includes(days)) throw new CliError(EXIT.USAGE, '--days must be 1, 7 or 30.');
       return (await ctx.api.post('/api/v2/linkedin/posts/search', { keywords, days, limit: limitOf(ctx, 10, 20), account_id: ctx.opts.account })).data;
@@ -152,25 +195,33 @@ export const dataCommands: Command[] = [
   },
   {
     name: 'linkedin engagers',
-    args: '<post_url>',
-    summary: 'People who reacted to or commented on a LinkedIn post. Paid: shows a quote first.',
+    summary: 'People who reacted to or commented on recent LinkedIn posts by named authors or with named phrases. Paid: shows a quote first.',
     paid: true,
     options: {
-      kinds: { type: 'string', multiple: true, desc: 'reactions, comments or both (default both).' },
-      ...limitOpt(100, 1000),
+      author: { type: 'string', multiple: true, desc: 'LinkedIn person or company URL whose posts count (repeatable or comma separated, up to 50).' },
+      phrase: { type: 'string', multiple: true, desc: 'Exact phrase a post contains (repeatable, up to 25).' },
+      people: { type: 'string', desc: 'People filters engagers must match as JSON, or a JSON file (or -), e.g. {"job_titles_include":["VP Sales"]}. Required.' },
+      'posted-within-days': { type: 'string', desc: 'Posts from the last N days, 1 to 90 (default 14).' },
+      ...limitOpt(25, 100),
     },
     view: view(['full_name', 'title', 'company', 'kind', 'linkedin_url']),
-    examples: ['cleanlist linkedin engagers https://www.linkedin.com/posts/jane_activity-123 --kinds comments --yes'],
+    examples: [`cleanlist linkedin engagers --author https://www.linkedin.com/in/jane --people '{"job_titles_include":["VP Sales"]}' --yes`],
     async run(ctx) {
-      const postUrl = ctx.args[0];
-      if (!postUrl || !/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(postUrl)) throw new CliError(EXIT.USAGE, 'Pass the LinkedIn post URL (https://www.linkedin.com/...).');
-      const kinds = list(ctx.opts.kinds) ?? ['reactions', 'comments'];
-      const bad = kinds.filter((k) => !['reactions', 'comments'].includes(k));
-      if (bad.length) throw new CliError(EXIT.USAGE, `--kinds takes reactions and comments, not ${bad.join(', ')}.`);
-      const limit = limitOf(ctx, 100, 1000);
-      const q = await confirmSpend(ctx, { tool: 'post_engagers', row_count: limit }, 'Post engagers');
-      const { data } = await ctx.api.post('/api/v2/linkedin/posts/engagers', { post_url: postUrl, kinds, limit, quote_id: q.quote_id });
-      return withRows(ctx, data, true);
+      const authors = list(ctx.opts.author) ?? [];
+      const bad = authors.filter((u) => !/^https:\/\/([a-z]+\.)?linkedin\.com\//i.test(u));
+      if (bad.length) throw new CliError(EXIT.USAGE, `--author takes LinkedIn URLs (https://www.linkedin.com/...), not ${bad.join(', ')}.`);
+      const phrases = list(ctx.opts.phrase, false) ?? [];
+      if (!authors.length && !phrases.length) throw new CliError(EXIT.USAGE, 'Pass --author or --phrase.');
+      const people = jsonArg(ctx, 'people');
+      if (!people || !Object.keys(people).length) throw new CliError(EXIT.USAGE, 'Pass --people, the people filters engagers must match.');
+      const body = {
+        people,
+        author_urls: authors,
+        text_phrases: phrases,
+        posted_within_days: intOpt(ctx.opts['posted-within-days'], 'posted-within-days') ?? 14,
+        limit: limitOf(ctx, 25, 100),
+      };
+      return withRows(ctx, await filtersQuoted(ctx, 'post_engagers', '/api/v2/linkedin/posts/engagers', body, 'Post engagers'), true);
     },
   },
   {
@@ -179,60 +230,52 @@ export const dataCommands: Command[] = [
     paid: true,
     options: {
       tool: { type: 'string', multiple: true, desc: 'Tool or technology, e.g. Salesforce (repeatable or comma separated).' },
-      'company-criteria': criteriaOpts['company-criteria'],
-      ...limitOpt(25, 1000),
+      'company-criteria': { type: 'string', desc: 'Company filters as JSON, or a JSON file (or -), as in `search companies`. Required.' },
+      ...limitOpt(25, 200),
     },
     view: view(['name', 'domain', 'industry', 'employees', 'country', 'tools']),
-    examples: ['cleanlist companies tech --tool Outreach,Salesloft --limit 100 --yes --format csv > accounts.csv'],
+    examples: [`cleanlist companies tech --tool Outreach,Salesloft --company-criteria '{"industries_include":["Software Development"]}' --limit 100 --yes --format csv > accounts.csv`],
     async run(ctx) {
       const tools = list(ctx.opts.tool);
       if (!tools) throw new CliError(EXIT.USAGE, 'Pass --tool, e.g. --tool Salesforce.');
-      const limit = limitOf(ctx, 25, 1000);
-      const q = await confirmSpend(ctx, { tool: 'companies_by_technology', row_count: limit }, 'Companies by technology');
-      const { data } = await ctx.api.post('/api/v2/companies/by-technology', { tools, company_criteria: companyCriteria(ctx), limit, quote_id: q.quote_id });
-      return withRows(ctx, data);
+      const criteria = companyCriteria(ctx);
+      if (!criteria || !Object.keys(criteria).length) throw new CliError(EXIT.USAGE, 'Pass --company-criteria, the company filters the companies must match.');
+      const body = { tools, company_criteria: criteria, limit: limitOf(ctx, 25, 200) };
+      return withRows(ctx, await filtersQuoted(ctx, 'companies_by_technology', '/api/v2/companies/by-technology', body, 'Companies by technology'));
     },
   },
   {
     name: 'companies signals',
-    summary: 'Buying signals (hiring, funding and the other registered signals) for companies. Paid: shows a quote first.',
+    summary: 'Buying signals (job postings, news, funding, headcount) your signal watches delivered for these companies. Paid when unpaid signals remain: shows a quote first.',
     paid: true,
     options: {
-      type: { type: 'string', multiple: true, desc: 'Signal type (repeatable or comma separated). Omit for every type.' },
-      since: { type: 'string', desc: 'Only signals after this ISO date.' },
-      ...criteriaOpts,
-      ...limitOpt(25, 1000),
+      type: { type: 'string', multiple: true, desc: `Signal type: ${SIGNAL_TYPES.join(', ')} (repeatable or comma separated). Omit for every type.` },
+      since: { type: 'string', desc: 'First day read (YYYY-MM-DD). Default 30 days back.' },
+      'company-domain': criteriaOpts['company-domain'],
+      'domains-file': criteriaOpts['domains-file'],
     },
     view: view(['company_domain', 'signal_type', 'title', 'detected_at', 'url']),
-    examples: ['cleanlist companies signals --company-domain acme.com --since 2026-10-01 --yes', 'cleanlist companies signals --domains-file accounts.csv --type job_postings --format jsonl --yes'],
+    examples: ['cleanlist companies signals --company-domain acme.com --since 2026-10-01 --yes', 'cleanlist companies signals --domains-file accounts.csv --type job_posting --format jsonl --yes'],
     async run(ctx) {
       const domains = domainsOf(ctx);
-      const criteria = companyCriteria(ctx);
-      if (!domains && !criteria) throw new CliError(EXIT.USAGE, 'Pass --company-domain, --domains-file or --company-criteria.');
-      const limit = limitOf(ctx, 25, 1000);
-      const q = await confirmSpend(ctx, { tool: 'company_signals', row_count: domains?.length ?? limit }, 'Company signals');
-      const { data } = await ctx.api.post('/api/v2/companies/signals', {
-        signal_types: list(ctx.opts.type),
-        company_domains: domains,
-        company_criteria: criteria,
-        since: ctx.opts.since,
-        limit,
-        quote_id: q.quote_id,
-      });
-      return withRows(ctx, data);
+      if (!domains) throw new CliError(EXIT.USAGE, 'Pass --company-domain or --domains-file.');
+      const body = { signal_types: list(ctx.opts.type) ?? SIGNAL_TYPES, company_domains: domains, since: ctx.opts.since };
+      return withRows(ctx, await routeQuoted(ctx, '/api/v2/companies/signals', body, 'Company signals'));
     },
   },
   {
     name: 'companies committee',
     args: '<domain>',
     summary: 'The buying committee at a company, by persona. Free.',
-    options: { persona: { type: 'string', multiple: true, desc: 'Persona or role group, e.g. "Sales leadership" (repeatable).' } },
+    options: {
+      persona: { type: 'string', multiple: true, desc: 'Role group as "Label=Title,Title", or JSON {label, titles, exclude_titles, count} (repeatable, up to 3). Omit for the default committee.' },
+    },
     view: { rows: (d) => (d.groups ?? []).flatMap((g: any) => (g.people ?? []).map((p: any) => ({ group: g.label, ...p }))), columns: ['group', 'full_name', 'title', 'in_crm', 'linkedin_url'] },
-    examples: ['cleanlist companies committee acme.com --persona "Sales leadership" --persona RevOps'],
+    examples: ['cleanlist companies committee acme.com --persona "Sales leadership=VP Sales,CRO" --persona "RevOps=Head of RevOps"'],
     async run(ctx) {
       const company = ctx.args[0];
       if (!company) throw new CliError(EXIT.USAGE, 'Pass the company domain, e.g. acme.com.');
-      const { data } = await ctx.api.post('/api/v2/companies/buying-committee', { company, personas: list(ctx.opts.persona, false) });
+      const { data } = await ctx.api.post('/api/v2/companies/buying-committee', { company, personas: personas(ctx) });
       if (data?.crm_note) ctx.log(data.crm_note);
       return data;
     },

@@ -85,6 +85,13 @@ test('paid gate: --max-credits below the quote exits 5, even with --yes', async 
   await assert.rejects(confirmSpend(ctxWith({ yes: true, 'max-credits': '100' }), {}, 'x'), (e) => e.exitCode === EXIT.CREDITS);
 });
 
+test('paid gate: a --max-credits that is not a number exits 2 instead of switching the cap off', async () => {
+  for (const max of ['1,000', '5k', '', 'NaN', '-1']) {
+    await assert.rejects(confirmSpend(ctxWith({ yes: true, 'max-credits': max }), {}, 'x'), (e) => e.exitCode === EXIT.USAGE);
+  }
+  assert.equal((await confirmSpend(ctxWith({ yes: true, 'max-credits': '120.5' }), {}, 'x')).quote_id, 'qte_1');
+});
+
 test('paid gate: insufficient balance exits 5', async () => {
   await assert.rejects(confirmSpend(ctxWith({ yes: true }, quote({ sufficient: false })), {}, 'x'), (e) => e.exitCode === EXIT.CREDITS);
 });

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { Api, retryDelayMs } from '../dist/api.js';
 import { batchCommands, parseItems } from '../dist/commands/batch.js';
@@ -36,9 +36,10 @@ async function serve(handler) {
   return { server, url: `http://127.0.0.1:${server.address().port}` };
 }
 
-function run(args, env = {}) {
+function run(args, env = {}, input) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...process.env, CI: '1', CLEANLIST_API_KEY: '', CLEANLIST_MODE: '', ...env } });
+    if (input !== undefined) child.stdin.end(input);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
@@ -506,6 +507,18 @@ test('cli: mcp install shows the diff, writes nothing without --yes, then writes
   assert.equal((await run(['mcp', 'install', 'vscode'], env)).code, EXIT.USAGE);
   assert.equal((await run(['mcp', 'install', 'cursor', '--api-key', 'nope'], env)).code, EXIT.USAGE);
   assert.equal((await run(['mcp', 'install', 'cursor', '--api-key', 'clapi_k', '--oauth'], env)).code, EXIT.USAGE);
+});
+
+test('cli: mcp install --api-key - reads the piped key, and a key goes into an existing config only at mode 0600', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'cl-home-'));
+  const path = join(home, '.cursor', 'mcp.json');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, '{"mcpServers":{"other":{"command":"x"}}}\n', { mode: 0o644 });
+  const out = await run(['mcp', 'install', 'cursor', '--api-key', '-', '--yes'], { HOME: home }, 'clapi_piped1234\n');
+  assert.equal(out.code, 0, out.stderr);
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).mcpServers.cleanlist.env.CLEANLIST_API_KEY, 'clapi_piped1234');
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.equal((await run(['mcp', 'install', 'cursor', '--api-key', '-', '--yes'], { HOME: home }, 'nope\n')).code, EXIT.USAGE);
 });
 
 test('cli: mcp install claude-code runs claude mcp add with the hosted URL', async () => {

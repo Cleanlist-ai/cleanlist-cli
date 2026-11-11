@@ -88,8 +88,8 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   if (!q.sufficient) {
     throw new CliError(EXIT.CREDITS, `Not enough credits: needs ${q.estimated_cost}, balance ${q.available_credits}.`, 'Buy credits or narrow the job.', { quote: q });
   }
-  const max = ctx.opts['max-credits'];
-  if (max !== undefined && q.estimated_cost > Number(max)) {
+  const max = maxCredits(ctx);
+  if (max !== undefined && q.estimated_cost > max) {
     throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, undefined, { quote: q });
   }
   if (ctx.opts.yes || q.estimated_cost === 0) {
@@ -107,6 +107,47 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
     'Show this cost (and any CRM note) to the user. Re-run with --yes only after they approve it.',
     { quote: q },
   );
+}
+
+/** --max-credits as a number. Anything else (1,000 or 5k) exits 2 so the cap is never silently off. */
+export function maxCredits(ctx: Ctx): number | undefined {
+  const v = ctx.opts['max-credits'];
+  if (v === undefined) return undefined;
+  if (!/^\d+(\.\d+)?$/.test(String(v).trim())) throw new CliError(EXIT.USAGE, `--max-credits must be a number, like 1000 (got "${v}").`);
+  return Number(v);
+}
+
+/** Read one line from the terminal without echoing it. */
+export function askSecret(prompt: string): Promise<string> {
+  process.stderr.write(prompt);
+  const stdin = process.stdin;
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding('utf8');
+  return new Promise((resolve, reject) => {
+    let value = '';
+    const done = (fn: () => void) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.off('data', onData);
+      process.stderr.write('\n');
+      fn();
+    };
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') return done(() => resolve(value.trim()));
+        if (ch === '\u0003') return done(() => reject(new CliError(EXIT.USAGE, 'Cancelled.')));
+        if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
+        else value += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+/** An API key flag: `-` is a hidden prompt in a terminal (ends on Enter), else the piped stdin. */
+export async function readKey(v: unknown): Promise<string> {
+  return v !== '-' ? String(v) : process.stdin.isTTY ? askSecret('Paste your Cleanlist API key: ') : readInput('-').trim();
 }
 
 /** Ask before destructive, non-billed actions (delete). Same TTY/--yes rules as confirmSpend. */

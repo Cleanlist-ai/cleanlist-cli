@@ -1,4 +1,4 @@
-import { ask, type Command, type Ctx, interactive, jsonOpt } from '../context.js';
+import { ask, type Command, type Ctx, interactive, jsonOpt, maxCredits } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -22,8 +22,8 @@ const confirmCard = async (ctx: Ctx, cardId: string, sessionId: string) =>
 async function settleCard(ctx: Ctx, res: ActionResult): Promise<unknown> {
   const card = res.card!;
   const line = `${card.title}: ${card.summary} Cost: ${card.credits_required.toLocaleString()} credits.`;
-  const max = ctx.opts['max-credits'];
-  if (max !== undefined && card.credits_required > Number(max)) {
+  const max = maxCredits(ctx);
+  if (max !== undefined && card.credits_required > max) {
     throw new CliError(EXIT.CREDITS, `Card costs ${card.credits_required} credits, above --max-credits ${max}. Nothing ran.`, undefined, { card: res });
   }
   if (ctx.opts.yes) {

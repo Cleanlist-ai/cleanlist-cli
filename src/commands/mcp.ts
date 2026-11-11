@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { type Command, confirmAction } from '../context.js';
+import { type Command, confirmAction, readKey } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 export const MCP_URL = 'https://mcp.cleanlist.ai/v1/mcp';
@@ -78,10 +78,12 @@ export function lineDiff(before: string, after: string): string {
   return out.join('\n') + '\n';
 }
 
-function writeConfig(path: string, content: string): void {
+function writeConfig(path: string, content: string, key?: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  // A key may be in it: a new file is private to this user.
-  writeFileSync(path, content, existsSync(path) ? undefined : { mode: 0o600 });
+  // A key may be in it: a new file is private to this user, and so is an
+  // existing one before the key goes in.
+  if (key && existsSync(path)) chmodSync(path, 0o600);
+  writeFileSync(path, content, { mode: 0o600 });
 }
 
 export const mcpCommands: Command[] = [
@@ -96,14 +98,15 @@ export const mcpCommands: Command[] = [
     examples: [
       'cleanlist mcp install claude-code',
       'cleanlist mcp install cursor --yes',
-      'cleanlist mcp install claude-desktop --api-key clapi_...',
+      'cleanlist mcp install claude-desktop --api-key -   # paste the key at a hidden prompt',
+      'printenv CLEANLIST_API_KEY | cleanlist mcp install cursor --api-key - --yes',
       'cleanlist mcp install codex',
     ],
     async run(ctx) {
       const host = ctx.args[0] as Host;
       if (!HOSTS.includes(host)) throw new CliError(EXIT.USAGE, `Pick the app: ${HOSTS.join(', ')}.`);
-      const key: string | undefined = ctx.opts['api-key'];
-      if (key && ctx.opts.oauth) throw new CliError(EXIT.USAGE, 'Pass --api-key or --oauth, not both.');
+      if (ctx.opts['api-key'] !== undefined && ctx.opts.oauth) throw new CliError(EXIT.USAGE, 'Pass --api-key or --oauth, not both.');
+      const key = ctx.opts['api-key'] === undefined ? undefined : await readKey(ctx.opts['api-key']);
       if (key !== undefined && !String(key).startsWith('clapi_')) throw new CliError(EXIT.USAGE, 'That is not a Cleanlist API key (they start with clapi_).');
       const mode = key ? 'api_key' : 'oauth';
       const stdioEntry = { command: STDIO.command, args: STDIO.args, env: { CLEANLIST_API_KEY: key } };
@@ -149,7 +152,7 @@ export const mcpCommands: Command[] = [
       }
       ctx.log(`${existsSync(path) ? 'Changes to' : 'New file'} ${path}:\n${mask(lineDiff(before, next), key)}`);
       await confirmAction(ctx, `Write ${path}?`);
-      writeConfig(path, next);
+      writeConfig(path, next, key);
       const after = {
         cursor: 'Restart Cursor (or reload MCP servers) and sign in to Cleanlist when it asks.',
         'claude-desktop': 'Restart Claude Desktop.',

@@ -10,37 +10,9 @@ import {
   testCredentialName,
   useProfile,
 } from '../config.js';
-import { type Command, confirmSpend, DryRun, intOpt, list, readInput, resolveList } from '../context.js';
+import { type Command, confirmSpend, DryRun, intOpt, list, readKey, resolveList } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { loginDevice, loginLoopback, revoke } from '../oauth.js';
-
-/** Read one line from the terminal without echoing it. */
-function askSecret(prompt: string): Promise<string> {
-  process.stderr.write(prompt);
-  const stdin = process.stdin;
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdin.setEncoding('utf8');
-  return new Promise((resolve, reject) => {
-    let value = '';
-    const done = (fn: () => void) => {
-      stdin.setRawMode(false);
-      stdin.pause();
-      stdin.off('data', onData);
-      process.stderr.write('\n');
-      fn();
-    };
-    const onData = (chunk: string) => {
-      for (const ch of chunk) {
-        if (ch === '\r' || ch === '\n') return done(() => resolve(value.trim()));
-        if (ch === '\u0003') return done(() => reject(new CliError(EXIT.USAGE, 'Cancelled.')));
-        if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
-        else value += ch;
-      }
-    };
-    stdin.on('data', onData);
-  });
-}
 
 export const accountCommands: Command[] = [
   {
@@ -61,8 +33,7 @@ export const accountCommands: Command[] = [
       let cred: Credential;
       const key = ctx.opts['api-key'];
       if (key) {
-        // `-`: a hidden prompt in a terminal (ends on Enter), else read the pipe.
-        const value = key !== '-' ? String(key) : process.stdin.isTTY ? await askSecret('Paste your Cleanlist API key: ') : readInput('-').trim();
+        const value = await readKey(key);
         if (!value.startsWith('clapi_')) throw new CliError(EXIT.USAGE, 'That is not a Cleanlist API key (they start with clapi_).');
         cred = { type: 'api_key', key: value };
       } else if (ctx.test) {
