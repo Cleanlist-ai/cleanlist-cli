@@ -69,7 +69,15 @@ export interface Quote {
   expires_at: number;
   tool: string;
   crm_note?: string | null;
+  /** Who a run reaches: the steps that send email or write to a CRM. */
+  reach_note?: string | null;
 }
+
+/** Runs carry out a play's steps, which can email people or write to a CRM whatever they cost. */
+const RUN_STEPS: Record<string, (e: Record<string, unknown>) => string> = {
+  run_gtm_agent: (e) => `agents get ${e.agent_id}`,
+  run_play: () => 'plays list',
+};
 
 /**
  * The paid-work gate. Quote the exact operation, show it, then:
@@ -82,8 +90,13 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   const { data: q } = await ctx.api.post<Quote>('/api/v2/credits/estimate', estimate);
   const summary = `${what}: ${q.estimated_cost.toLocaleString()} credits for ${q.row_count.toLocaleString()} row(s). Balance ${q.available_credits.toLocaleString()}.`;
   if (ctx.opts['dry-run']) throw new DryRun(q);
+  const run = RUN_STEPS[String(estimate.tool)]?.(estimate);
+  const note =
+    q.reach_note ||
+    q.crm_note ||
+    (run ? `This run carries out every step of the play, which can email people or write to your CRM. See its steps with \`cleanlist ${run}\`.` : '');
   // Refusals carry the quote in the error; only log it when going ahead or asking.
-  const announce = () => ctx.log(summary + (q.crm_note ? `\n${q.crm_note}` : ''));
+  const announce = () => ctx.log(summary + (note ? `\n${note}` : ''));
 
   if (!q.sufficient) {
     throw new CliError(EXIT.CREDITS, `Not enough credits: needs ${q.estimated_cost}, balance ${q.available_credits}.`, 'Buy credits or narrow the job.', { quote: q });
@@ -104,8 +117,8 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   }
   throw new CliError(
     EXIT.CONFIRM,
-    `Confirmation required: ${summary}${q.crm_note ? ` ${q.crm_note}` : ''}`,
-    'Show this cost (and any CRM note) to the user. Re-run with --yes only after they approve it.',
+    `Confirmation required: ${summary}${note ? ` ${note}` : ''}`,
+    `Show the user this cost${note ? ' and the note after it' : ''}. Re-run with --yes only after they approve it.`,
     { quote: q },
   );
 }

@@ -86,6 +86,25 @@ test('paid gate: a 0-credit quote still needs --yes (agent and play runs can sen
   assert.equal((await confirmSpend(ctxWith({ yes: true }, quote({ estimated_cost: 0 })), {}, 'x')).quote_id, 'qte_1');
 });
 
+test('paid gate: run quotes say the run can email people or write to a CRM, in the prompt log and the exit-7 hint', async () => {
+  const logs = [];
+  const ctx = (opts, q) => ({ ...ctxWith(opts, q), log: (m) => logs.push(m) });
+  for (const tool of ['run_gtm_agent', 'run_play']) {
+    await assert.rejects(confirmSpend(ctx({ 'no-input': true }, quote({ estimated_cost: 0, tool })), { tool }, 'Run'), (e) =>
+      e.exitCode === EXIT.CONFIRM && /email people or write to your CRM/.test(e.message) && /note/.test(e.fix));
+  }
+  await confirmSpend(ctx({ yes: true }, quote({ estimated_cost: 0, tool: 'run_play' })), { tool: 'run_play' }, 'Run play');
+  assert.match(logs.pop(), /email people or write to your CRM[\s\S]*plays list/);
+  // The API's own reach note wins when it sends one.
+  await confirmSpend(ctx({ yes: true }, quote({ tool: 'run_gtm_agent', reach_note: 'Sends sequence Q4 Outbound to 1 person.' })), { tool: 'run_gtm_agent' }, 'Run agent');
+  assert.match(logs.pop(), /Sends sequence Q4 Outbound/);
+  await confirmSpend(ctx({ yes: true }, quote({ estimated_cost: 0 })), { tool: 'run_gtm_agent', agent_id: 'agt_9' }, 'Run agent');
+  assert.match(logs.pop(), /cleanlist agents get agt_9/);
+  // Other paid tools get no run note.
+  await confirmSpend(ctx({ yes: true }), { tool: 'enrich_list' }, 'Enrich');
+  assert.doesNotMatch(logs.pop(), /email people/);
+});
+
 test('paid gate: --max-credits below the quote exits 5, even with --yes', async () => {
   await assert.rejects(confirmSpend(ctxWith({ yes: true, 'max-credits': '100' }), {}, 'x'), (e) => e.exitCode === EXIT.CREDITS);
 });
