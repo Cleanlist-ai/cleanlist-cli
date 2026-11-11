@@ -92,13 +92,14 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   if (max !== undefined && q.estimated_cost > max) {
     throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, 'Raise --max-credits, or narrow the job.', { quote: q });
   }
-  if (ctx.opts.yes || q.estimated_cost === 0) {
+  // A 0-credit quote still asks: agent and play runs can send email or write to a CRM.
+  if (ctx.opts.yes) {
     announce();
     return q;
   }
   if (interactive(ctx.opts)) {
     announce();
-    if (await ask(`Spend ${q.estimated_cost.toLocaleString()} credits?`)) return q;
+    if (await ask(q.estimated_cost ? `Spend ${q.estimated_cost.toLocaleString()} credits?` : 'Go ahead?')) return q;
     throw new CliError(EXIT.CONFIRM, 'Cancelled. No credits were spent.');
   }
   throw new CliError(

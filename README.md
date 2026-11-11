@@ -118,6 +118,7 @@ Commands that spend credits (`enrich *`, `batch *`, `smart-agents run`, `agents 
 
 - in a terminal, you're asked `Spend 1,240 credits? [y/N]`;
 - with `--yes`, it goes ahead;
+- a 0-credit quote still asks, since an agent or play run can send email or write to your CRM;
 - without a terminal and without `--yes`, it exits **7** and prints the quote, so a
   coding agent can show you the cost before re-running with `--yes`;
 - `--dry-run` prints the quote and stops; `--max-credits N` refuses anything above N

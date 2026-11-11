@@ -333,3 +333,29 @@ test('cli: the old AI-column flags on agents point at smart-agents; other bad ag
   assert.equal(typo.code, EXIT.USAGE);
   assert.doesNotMatch(typo.stderr, /smart-agents/);
 });
+
+test('cli: agents run and plays run with a 0-credit quote and no --yes exit 7 and start nothing', async () => {
+  const runs = [];
+  const server = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'POST' && req.url === '/api/v2/credits/estimate') return res.end(JSON.stringify({ ...quote, estimated_cost: 0 }));
+    runs.push(req.url);
+    res.end(JSON.stringify({ run_id: null }));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ['dist/cli.js', ...args, '--api-url', url], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
+      child.on('close', resolve);
+    });
+  try {
+    assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--format', 'table']), EXIT.CONFIRM);
+    assert.equal(await run(['plays', 'run', 'pb_1']), EXIT.CONFIRM);
+    assert.deepEqual(runs, []);
+    assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--yes']), 0);
+    assert.equal(runs.length, 1);
+  } finally {
+    server.close();
+  }
+});

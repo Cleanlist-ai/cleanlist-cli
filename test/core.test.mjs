@@ -81,6 +81,11 @@ test('paid gate: no TTY and no --yes exits 7 with the quote attached', async () 
   await assert.rejects(confirmSpend(ctxWith({ 'no-input': true }), {}, 'x'), (e) => e.exitCode === EXIT.CONFIRM && e.detail.quote.quote_id === 'qte_1');
 });
 
+test('paid gate: a 0-credit quote still needs --yes (agent and play runs can send email)', async () => {
+  await assert.rejects(confirmSpend(ctxWith({ 'no-input': true }, quote({ estimated_cost: 0 })), {}, 'x'), (e) => e.exitCode === EXIT.CONFIRM && e.detail.quote.quote_id === 'qte_1');
+  assert.equal((await confirmSpend(ctxWith({ yes: true }, quote({ estimated_cost: 0 })), {}, 'x')).quote_id, 'qte_1');
+});
+
 test('paid gate: --max-credits below the quote exits 5, even with --yes', async () => {
   await assert.rejects(confirmSpend(ctxWith({ yes: true, 'max-credits': '100' }), {}, 'x'), (e) => e.exitCode === EXIT.CREDITS);
 });
