@@ -90,7 +90,7 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   }
   const max = maxCredits(ctx);
   if (max !== undefined && q.estimated_cost > max) {
-    throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, undefined, { quote: q });
+    throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, 'Raise --max-credits, or narrow the job.', { quote: q });
   }
   if (ctx.opts.yes || q.estimated_cost === 0) {
     announce();
@@ -153,7 +153,7 @@ export function askSecret(prompt: string): Promise<string> {
     const onData = (chunk: string) => {
       for (const ch of chunk) {
         if (ch === '\r' || ch === '\n') return done(() => resolve(value.trim()));
-        if (ch === '\u0003') return done(() => reject(new CliError(EXIT.USAGE, 'Cancelled.')));
+        if (ch === '\u0003') return done(() => reject(new CliError(EXIT.CONFIRM, 'Cancelled. Nothing was saved.')));
         if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
         else value += ch;
       }
@@ -170,7 +170,10 @@ export async function readKey(v: unknown): Promise<string> {
 /** Ask before destructive, non-billed actions (delete). Same TTY/--yes rules as confirmSpend. */
 export async function confirmAction(ctx: Ctx, question: string): Promise<void> {
   if (ctx.opts.yes) return;
-  if (interactive(ctx.opts) && (await ask(question))) return;
+  if (interactive(ctx.opts)) {
+    if (await ask(question)) return;
+    throw new CliError(EXIT.CONFIRM, 'Cancelled. Nothing was changed.');
+  }
   throw new CliError(EXIT.CONFIRM, `Confirmation required: ${question}`, 'Re-run with --yes.');
 }
 

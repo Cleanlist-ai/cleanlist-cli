@@ -73,6 +73,7 @@ export const accountCommands: Command[] = [
   {
     name: 'logout',
     summary: 'Delete this profile\'s saved credentials (and revoke them, for browser sign-in). --test: only its test key.',
+    examples: ['cleanlist logout', 'cleanlist logout --profile acme --test'],
     noAuth: true,
     async run(ctx) {
       const testName = testCredentialName(ctx.profile);
@@ -108,6 +109,7 @@ export const accountCommands: Command[] = [
   {
     name: 'profiles',
     summary: 'List saved profiles (workspaces) on this machine. ACTIVE is the one commands use now.',
+    examples: ['cleanlist profiles'],
     noAuth: true,
     view: { rows: (d) => d.profiles, columns: ['name', 'active', 'default', 'organization_name', 'email', 'auth_type', 'test_key', 'api_url'] },
     async run(ctx) {
@@ -189,6 +191,7 @@ export const accountCommands: Command[] = [
   {
     name: 'usage',
     summary: 'API usage report: calls, credits spent and errors, grouped by tool or day.',
+    examples: ['cleanlist usage --days 7 --group-by day'],
     options: {
       days: { type: 'string', desc: 'Look-back window in days (default 30).' },
       'group-by': { type: 'string', desc: 'tool | day | key.' },

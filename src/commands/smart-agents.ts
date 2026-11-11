@@ -62,6 +62,7 @@ export const smartAgentCommands: Command[] = [
   {
     name: 'smart-agents list',
     summary: 'Recent smart-agent runs.',
+    examples: ['cleanlist smart-agents list --list "Q4 ABM" --limit 5'],
     options: { list: { type: 'string', desc: 'Only runs on this list.' }, limit: { type: 'string', desc: 'How many (default 20).' } },
     view: { rows: (d) => d.runs, columns: ['task_id', 'column_name', 'agent_type', 'status', 'processed', 'total', 'created_at'] },
     async run(ctx) {
@@ -73,6 +74,7 @@ export const smartAgentCommands: Command[] = [
     name: 'smart-agents results',
     args: '<smart_agent_task_id>',
     summary: 'Status and output of a smart-agent run.',
+    examples: ['cleanlist smart-agents results <smart_agent_task_id> --wait'],
     options: { wait: { type: 'boolean', desc: 'Block until it finishes.' }, timeout: { type: 'string', desc: 'Default 30m.' } },
     view: RESULT_VIEW,
     async run(ctx) {

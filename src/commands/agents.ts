@@ -15,6 +15,7 @@ const setStatus = (status: 'on' | 'off'): Command => ({
   name: `agents ${status}`,
   args: '<agent_id>',
   summary: status === 'on' ? 'Turn an agent on: its triggers and schedule start running.' : 'Turn an agent off.',
+  examples: [`cleanlist agents ${status} <agent_id>`],
   async run(ctx) {
     return (await ctx.api.post(`/api/v2/gtm-agents/${enc(agentId(ctx))}/status`, { status })).data;
   },
@@ -24,6 +25,7 @@ export const agentCommands: Command[] = [
   {
     name: 'agents list',
     summary: 'Your GTM agents.',
+    examples: ['cleanlist agents list'],
     view: { rows: (d) => d, columns: AGENT_COLUMNS },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/gtm-agents')).data;
@@ -33,6 +35,7 @@ export const agentCommands: Command[] = [
     name: 'agents get',
     args: '<agent_id>',
     summary: 'One agent, with its plays and status.',
+    examples: ['cleanlist agents get <agent_id> --json'],
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/gtm-agents/${enc(agentId(ctx))}`)).data;
     },
@@ -56,6 +59,7 @@ export const agentCommands: Command[] = [
     name: 'agents update',
     args: '<agent_id>',
     summary: 'Change an agent\'s name, settings or schedule.',
+    examples: ['cleanlist agents update <agent_id> --name "Inbound follow-up v2"'],
     options: {
       name: { type: 'string', desc: 'New name.' },
       settings: { type: 'string', desc: 'Settings as a JSON object.' },
@@ -95,6 +99,7 @@ export const agentCommands: Command[] = [
     name: 'agents runs',
     args: '<agent_id>',
     summary: 'An agent\'s runs. `plays results <run_id>` shows one run\'s records.',
+    examples: ['cleanlist agents runs <agent_id>'],
     view: { rows: (d) => d, columns: ['id', 'status', 'recordsTotal', 'recordsCompleted', 'recordsFailed', 'creditsUsed', 'createdAt'] },
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/gtm-agents/${enc(agentId(ctx))}/runs`)).data;

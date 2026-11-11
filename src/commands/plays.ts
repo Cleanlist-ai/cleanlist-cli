@@ -27,6 +27,7 @@ export const playCommands: Command[] = [
   {
     name: 'plays list',
     summary: 'Plays you can call like a function, with the inputs each takes.',
+    examples: ['cleanlist plays list'],
     view: { rows: (d) => d, columns: ['playbook_id', 'agent_id', 'name', 'inputs'] },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/plays')).data;
@@ -55,6 +56,7 @@ export const playCommands: Command[] = [
     name: 'plays results',
     args: '<run_id>',
     summary: 'Status and records of a play or agent run.',
+    examples: ['cleanlist plays results <run_id> --wait', 'cleanlist plays results <run_id> --limit 100 --json > run.json'],
     options: { limit: { type: 'string', desc: 'Records per page (max 500).' }, cursor: { type: 'string', desc: 'Next page: the last answer\'s records.nextCursor.' }, ...waitOpts },
     async run(ctx) {
       const id = ctx.args[0];

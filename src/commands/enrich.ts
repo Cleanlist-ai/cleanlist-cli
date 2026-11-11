@@ -190,6 +190,7 @@ export const enrichCommands: Command[] = [
     name: 'enrich status',
     args: '<workflow_id>',
     summary: 'Check an enrichment job.',
+    examples: ['cleanlist enrich status <workflow_id> --results --wait'],
     options: { results: { type: 'boolean', desc: 'Include per-person results.' }, ...waitOpts },
     async run(ctx) {
       const id = ctx.args[0];

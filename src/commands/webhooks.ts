@@ -8,6 +8,7 @@ export const webhookCommands: Command[] = [
   {
     name: 'webhooks list',
     summary: 'Your webhook subscriptions.',
+    examples: ['cleanlist webhooks list'],
     view: { rows: (d) => d.webhooks, columns: ['webhook_id', 'url', 'events', 'created_at'] },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/webhooks')).data;
@@ -32,6 +33,7 @@ export const webhookCommands: Command[] = [
     name: 'webhooks remove',
     args: '<webhook_id>',
     summary: 'Delete a subscription.',
+    examples: ['cleanlist webhooks remove <webhook_id> --yes'],
     paid: true,
     async run(ctx) {
       const id = ctx.args[0];

@@ -1,3 +1,5 @@
+import { CliError, EXIT } from './errors.js';
+
 /** RFC 4180 CSV: quoted fields, "" escapes, commas and newlines inside quotes, CRLF or LF, optional BOM. */
 export function parseCsv(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
@@ -103,13 +105,13 @@ export function mapColumns(header: string[], overrides: string[] = []): Record<s
   }
   for (const o of overrides) {
     const eq = o.indexOf('=');
-    if (eq < 1) throw new Error(`--map expects field=Header, got "${o}"`);
+    if (eq < 1) throw new CliError(EXIT.USAGE, `--map expects field=Header, got "${o}".`);
     const field = o.slice(0, eq).trim();
     const col = o.slice(eq + 1).trim();
     if (!CANONICAL_FIELDS.includes(field)) {
-      throw new Error(`Unknown field "${field}". Fields: ${CANONICAL_FIELDS.join(', ')}`);
+      throw new CliError(EXIT.USAGE, `Unknown --map field "${field}".`, `Fields: ${CANONICAL_FIELDS.join(', ')}.`);
     }
-    if (!header.includes(col)) throw new Error(`Column "${col}" is not in the CSV header`);
+    if (!header.includes(col)) throw new CliError(EXIT.USAGE, `Column "${col}" is not in the CSV header.`, `Columns: ${header.join(', ')}.`);
     mapping[field] = col;
   }
   return mapping;

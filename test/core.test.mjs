@@ -44,8 +44,8 @@ test('mapColumns matches common headers and applies overrides', () => {
     company_domain: 'Website',
   });
   assert.equal(mapColumns(header, ['email=Notes']).email, 'Notes');
-  assert.throws(() => mapColumns(header, ['nope=Notes']), /Unknown field/);
-  assert.throws(() => mapColumns(header, ['email=Missing']), /not in the CSV header/);
+  assert.throws(() => mapColumns(header, ['nope=Notes']), (e) => e.exitCode === EXIT.USAGE && /Unknown --map field/.test(e.message) && /first_name/.test(e.fix));
+  assert.throws(() => mapColumns(header, ['email=Missing']), (e) => e.exitCode === EXIT.USAGE && /not in the CSV header/.test(e.message) && /Work Email/.test(e.fix));
 });
 
 test('hasIdentity needs an email, a LinkedIn URL, or a name plus company', () => {

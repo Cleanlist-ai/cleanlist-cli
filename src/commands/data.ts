@@ -143,6 +143,7 @@ export const dataCommands: Command[] = [
   {
     name: 'job-changes list',
     summary: 'People in your lists who changed jobs. Free.',
+    examples: ['cleanlist job-changes list --since 2026-11-01'],
     options: {
       since: { type: 'string', desc: 'Only changes detected after this ISO date, e.g. 2026-11-01.' },
       list: { type: 'string', desc: 'Only people in this list (id).' },
@@ -283,6 +284,7 @@ export const dataCommands: Command[] = [
     name: 'companies org',
     args: '<domain>',
     summary: 'A company\'s org structure: departments, leaders and headcount. Free.',
+    examples: ['cleanlist companies org acme.com'],
     async run(ctx) {
       const company = ctx.args[0];
       if (!company) throw new CliError(EXIT.USAGE, 'Pass the company domain, e.g. acme.com.');
@@ -292,6 +294,7 @@ export const dataCommands: Command[] = [
   {
     name: 'meetings list',
     summary: 'Meetings and calls from your connected Gong, Fireflies and calendars. Free.',
+    examples: ['cleanlist meetings list --account acme.com --since 2026-10-01'],
     options: {
       since: { type: 'string', desc: 'Only meetings after this ISO date.' },
       account: { type: 'string', desc: 'Only meetings with this company domain.' },
@@ -308,6 +311,7 @@ export const dataCommands: Command[] = [
     name: 'meetings read',
     args: '<meeting_id>',
     summary: 'One meeting: summary, action items and attendees; --transcript adds the transcript when the connector has one. Free.',
+    examples: ['cleanlist meetings read <meeting_id> --transcript'],
     options: { transcript: { type: 'boolean', desc: 'Include the transcript (Fireflies and Fathom).' } },
     async run(ctx) {
       const id = ctx.args[0];

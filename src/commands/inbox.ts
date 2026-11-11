@@ -37,6 +37,7 @@ export const inboxCommands: Command[] = [
     name: 'inbox read',
     args: '<thread_id>',
     summary: 'One conversation, every message in order.',
+    examples: ['cleanlist inbox read <thread_id>'],
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/inbox/threads/${enc(threadId(ctx))}`)).data;
     },
@@ -64,6 +65,7 @@ export const inboxCommands: Command[] = [
     name: 'inbox done',
     args: '<thread_id>',
     summary: 'Archive a conversation and close its Reply task.',
+    examples: ['cleanlist inbox done <thread_id>'],
     async run(ctx) {
       return (await ctx.api.request('PATCH', `/api/v2/inbox/threads/${enc(threadId(ctx))}`, { body: { status: 'done' } })).data;
     },

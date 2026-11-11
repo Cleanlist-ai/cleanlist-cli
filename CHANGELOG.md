@@ -26,6 +26,8 @@ Fixed:
 - `actions run` and `actions confirm` exit non-zero when the action's result is an error (5 for `insufficient_credits`, 3 for `plan_required`, else 1), with the error on stderr.
 - Piping into a reader that closes early (`cleanlist ... | head`) exits quietly instead of crashing on EPIPE.
 - `job-changes list` and `meetings list` take `--limit`; `meetings read --transcript` asks for the transcript; their tables show the fields the API returns.
+- An unknown subcommand (`cleanlist agents bogus`) exits 2 with an error and a fix instead of only printing the group help. Bad-input errors without a fix of their own point at the command's `--help`. A bad `--map` exits 2 (it exited 1), and saying no at a delete or config prompt exits 7 like every other cancel.
+- Every command's `--help` has an example, and the README lists every command.
 
 ## 0.1.0
 

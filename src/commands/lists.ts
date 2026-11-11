@@ -39,12 +39,7 @@ async function rows(ctx: Ctx, listId: string) {
 export async function importCsv(ctx: Ctx, listId: string, text: string, maps: string[] = []) {
   const [header, ...data] = parseCsv(text);
   if (!header || !data.length) throw new CliError(EXIT.USAGE, 'The CSV has no data rows.');
-  let mapping: Record<string, string>;
-  try {
-    mapping = mapColumns(header, maps);
-  } catch (e) {
-    throw new CliError(EXIT.USAGE, (e as Error).message);
-  }
+  const mapping = mapColumns(header, maps);
   if (!hasIdentity(mapping)) {
     throw new CliError(
       EXIT.USAGE,
@@ -117,6 +112,7 @@ export const listCommands: Command[] = [
     name: 'lists get',
     args: '<list>',
     summary: 'Show one list (by id or exact name).',
+    examples: ['cleanlist lists get "Q4 ABM"'],
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/lead-lists/${enc(await resolveList(ctx, ctx.args[0]))}`)).data;
     },
@@ -136,6 +132,7 @@ export const listCommands: Command[] = [
     name: 'lists rename',
     args: '<list> <new-name>',
     summary: 'Rename a list.',
+    examples: ['cleanlist lists rename "Q4 ABM" "Q4 ABM (old)"'],
     async run(ctx) {
       if (!ctx.args[1]) throw new CliError(EXIT.USAGE, 'Pass the list and its new name.');
       const id = await resolveList(ctx, ctx.args[0]);
@@ -146,6 +143,7 @@ export const listCommands: Command[] = [
     name: 'lists delete',
     args: '<list>',
     summary: 'Delete a list. Asks first; needs --yes without a terminal.',
+    examples: ['cleanlist lists delete "Q4 ABM (old)" --yes'],
     paid: true,
     async run(ctx) {
       const id = await resolveList(ctx, ctx.args[0]);
@@ -191,6 +189,7 @@ export const listCommands: Command[] = [
     name: 'lists remove',
     args: '<list>',
     summary: 'Remove people from a list by lead id.',
+    examples: ['cleanlist lists remove "Q4 ABM" --lead-ids <lead_id>,<lead_id>'],
     options: { 'lead-ids': { type: 'string', multiple: true, desc: 'Lead ids to remove.' } },
     async run(ctx) {
       const id = await resolveList(ctx, ctx.args[0]);

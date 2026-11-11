@@ -62,6 +62,7 @@ export const actionCommands: Command[] = [
   {
     name: 'actions list',
     summary: 'Every Clu action your key and plan can use, with its input schema.',
+    examples: ['cleanlist actions list', `cleanlist actions list --json | jq '.actions[].name'`],
     view: { rows: (d) => d.actions, columns: ['name', 'group', 'effect', 'card', 'title'] },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/actions')).data;

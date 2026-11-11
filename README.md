@@ -89,13 +89,32 @@ cleanlist credits
 cleanlist usage --group-by tool
 ```
 
-Run `cleanlist --help` for every command and `cleanlist <command> --help` for flags
-and examples. Lists can be named by id or exact name.
+## Commands
+
+| Group | Commands |
+|---|---|
+| Account | `login`, `logout`, `whoami`, `profiles`, `use`, `credits`, `credits estimate`, `usage` |
+| People | `people search`, `people filters`, `people compile` |
+| Enrich | `enrich person`, `enrich company`, `enrich list`, `enrich task`, `enrich csv`, `enrich status`, `batch people`, `batch companies` |
+| Lists | `lists`, `lists get`, `lists create`, `lists rename`, `lists delete`, `lists rows`, `lists add`, `lists remove`, `lists import`, `lists export` |
+| AI columns | `smart-agents run`, `smart-agents list`, `smart-agents results` |
+| Signals and account data | `jobs search`, `job-changes list`, `job-changes check`, `linkedin posts`, `linkedin engagers`, `companies tech`, `companies signals`, `companies committee`, `companies org`, `meetings list`, `meetings read` |
+| GTM agents and plays | `agents list`, `agents get`, `agents create`, `agents update`, `agents on`, `agents off`, `agents run`, `agents runs`, `plays list`, `plays run`, `plays results` |
+| Sequences, tasks and Inbox | `sequences list`, `sequences get`, `sequences edit`, `sequences enroll`, `sequences status`, `tasks list`, `tasks get`, `tasks done`, `tasks skip`, `tasks create`, `inbox list`, `inbox read`, `inbox reply`, `inbox done`, `updates` |
+| Webhooks | `webhooks list`, `webhooks add`, `webhooks remove` |
+| Actions (every Clu tool) | `actions list`, `actions run`, `actions confirm` |
+| Developer | `listen`, `logs`, `completion` |
+| Agent setup | `skill`, `mcp install` |
+
+Every command has `--help` with its flags and an example: `cleanlist plays run --help`.
+`cleanlist <group> --help` (for example `cleanlist agents --help`) lists a group's commands.
+Lists can be named by id or exact name.
 
 ## Paying for things
 
-Commands that spend credits (`enrich *`, `smart-agents run`, `agents run`, `plays run`)
-first ask the API for a signed quote and show it:
+Commands that spend credits (`enrich *`, `batch *`, `smart-agents run`, `agents run`,
+`plays run`, and the paid data pulls `jobs search`, `job-changes check`, `linkedin engagers`,
+`companies tech` and `companies signals`) first ask the API for a signed quote and show it:
 
 - in a terminal, you're asked `Spend 1,240 credits? [y/N]`;
 - with `--yes`, it goes ahead;
@@ -119,7 +138,8 @@ sent: a terminal asks, anything else exits 7.
 
 Tables in a terminal, JSON when piped (`--json`, `--format jsonl|csv` to choose).
 Data goes to stdout, progress to stderr (`-q` silences it). Errors are JSON on stderr
-when piped, with a `fix` hint. A file argument of `-` reads stdin. Rate limits (429) and
+when piped, with a `fix` hint; an unknown command or a bad flag exits 2 and points at
+that command's `--help`. A file argument of `-` reads stdin. Rate limits (429) and
 server errors (5xx) are retried up to 3 tries, waiting as long as `Retry-After` says (up to
 a minute), and every write carries an `Idempotency-Key` reused by its own retries, so a
 retried write runs once.
@@ -133,7 +153,7 @@ retried write runs once.
 | 4 | Not found |
 | 5 | Not enough credits, or the quote is above `--max-credits` |
 | 6 | Rate limited (after retries) |
-| 7 | Confirmation required: re-run with `--yes` once the cost is approved |
+| 7 | Confirmation required: re-run with `--yes` once the cost is approved (also: you said no at the prompt) |
 | 8 | `--wait` timed out; the job is still running (the error shows how to resume) |
 
 `--wait` polls with backoff and honors `Retry-After`; `--timeout 10m` caps it.

@@ -88,6 +88,8 @@ function toParseOptions(specs: Record<string, OptSpec>): any {
 
 /** The output format in effect, so errors thrown anywhere are written the same way. */
 let currentFormat: Format = process.stdout.isTTY ? 'table' : 'json';
+/** The command being run, so a bad-input error without its own fix points at its help. */
+let currentCommand: string | undefined;
 
 /** Longest command name matching the leading positionals. */
 function findCommand(positionals: string[]): { cmd?: Command; rest: string[] } {
@@ -155,6 +157,7 @@ Run \`cleanlist <command> --help\` for flags and examples. Agents: \`cleanlist s
 const MOVED = 'AI columns moved to `cleanlist smart-agents run|list|results` in 0.2.0; `agents` is now GTM agents. See `cleanlist agents --help`.';
 
 function fail(e: CliError, format: Format): never {
+  if (e.exitCode === EXIT.USAGE && !e.fix && currentCommand) e = new CliError(e.exitCode, e.message, `Run \`cleanlist ${currentCommand} --help\`.`, e.detail);
   if (format === 'table' && process.stderr.isTTY) {
     process.stderr.write(`Error: ${e.message}\n${e.fix ? `Fix: ${e.fix}\n` : ''}`);
   } else {
@@ -185,7 +188,10 @@ async function main(argv: string[]): Promise<void> {
       return void process.stdout.write(target ? commandHelp(target) : prefix ? groupHelp(prefix) : mainHelp());
     }
     if (first && COMMANDS.some((c) => c.name.startsWith(first + ' '))) {
-      if (first === 'agents' && loose.positionals[1] === 'results') info(MOVED, Boolean(g.quiet));
+      const sub = loose.positionals[1];
+      if (sub && !g.help) {
+        throw new CliError(EXIT.USAGE, `Unknown command "${first} ${sub}".`, first === 'agents' && sub === 'results' ? MOVED : `Run \`cleanlist ${first} --help\`.`);
+      }
       process.stdout.write(groupHelp(first));
       if (!g.help) process.exit(EXIT.USAGE);
       return;
@@ -194,6 +200,7 @@ async function main(argv: string[]): Promise<void> {
     return void process.stdout.write(mainHelp());
   }
   if (g.help) return void process.stdout.write(commandHelp(cmd));
+  currentCommand = cmd.name;
 
   // Pass 2: strict parse with this command's flags.
   let values: Record<string, any>;

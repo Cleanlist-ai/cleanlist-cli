@@ -29,6 +29,7 @@ export const sequenceCommands: Command[] = [
   {
     name: 'sequences list',
     summary: 'Your email sequences.',
+    examples: ['cleanlist sequences list'],
     view: { rows: (d) => d.sequences, columns: ['id', 'name', 'status'] },
     async run(ctx) {
       return (await ctx.api.get('/api/v2/sequences')).data;
@@ -38,6 +39,7 @@ export const sequenceCommands: Command[] = [
     name: 'sequences get',
     args: '<id>',
     summary: 'One sequence with its steps.',
+    examples: ['cleanlist sequences get <id> --json'],
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/sequences/${enc(sequenceId(ctx))}`)).data;
     },
@@ -86,6 +88,7 @@ export const sequenceCommands: Command[] = [
     name: 'sequences status',
     args: '<id> <launch|pause|resume>',
     summary: 'Launch, pause or resume a sequence. Launch and resume email people: asks first.',
+    examples: ['cleanlist sequences status <id> pause', 'cleanlist sequences status <id> launch --yes'],
     paid: true,
     async run(ctx) {
       const id = sequenceId(ctx);

@@ -44,6 +44,7 @@ export const taskCommands: Command[] = [
     name: 'tasks get',
     args: '<task_id>',
     summary: 'One task, with its lead and sequence.',
+    examples: ['cleanlist tasks get <task_id>'],
     async run(ctx) {
       return (await ctx.api.get(`/api/v2/gtm-tasks/${enc(taskId(ctx))}`)).data;
     },
@@ -65,6 +66,7 @@ export const taskCommands: Command[] = [
     name: 'tasks skip',
     args: '<task_id>',
     summary: 'Skip a task: it comes back on the next day.',
+    examples: ['cleanlist tasks skip <task_id> --reason "Out of office"'],
     options: { reason: { type: 'string', desc: 'Why.' } },
     async run(ctx) {
       return patch(ctx, { status: 'skipped', note: ctx.opts.reason });
