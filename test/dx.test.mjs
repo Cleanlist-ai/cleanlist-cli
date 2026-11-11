@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, createHmac } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -528,7 +528,46 @@ test('cli: mcp install claude-code runs claude mcp add with the hosted URL', asy
   chmodSync(join(bin, 'claude'), 0o755);
   const out = await run(['mcp', 'install', 'claude-code', '--yes'], { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(out.code, 0, out.stderr);
-  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['mcp remove --scope user cleanlist', `mcp add --scope user --transport http cleanlist ${MCP_URL}`]);
+  assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), [`mcp add --scope user --transport http cleanlist ${MCP_URL}`]);
+});
+
+// A fake claude: `add` fails with "already exists" while the marker is
+// there, or with any other error when told to; `remove` deletes the marker.
+function fakeClaude({ installed, broken }) {
+  const bin = mkdtempSync(join(tmpdir(), 'cl-bin-'));
+  const log = join(bin, 'calls.log');
+  const marker = join(bin, 'installed');
+  if (installed) writeFileSync(marker, '');
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/bin/sh
+echo "$@" >> ${log}
+if [ "$2" = remove ]; then rm -f ${marker}; exit 0; fi
+${broken ? 'echo "Invalid environment variable format: cleanlist" >&2; exit 1' : ''}
+if [ -e ${marker} ]; then echo "MCP server cleanlist already exists in user config" >&2; exit 1; fi
+touch ${marker}
+`,
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  return { env: { PATH: `${bin}:${process.env.PATH}` }, calls: () => readFileSync(log, 'utf8').trim().split('\n'), marker };
+}
+
+test('cli: mcp install claude-code --api-key names the server before -e, and replaces an earlier install', async () => {
+  const claude = fakeClaude({ installed: true });
+  const out = await run(['mcp', 'install', 'claude-code', '--api-key', '-', '--yes'], claude.env, 'clapi_piped1234\n');
+  assert.equal(out.code, 0, out.stderr);
+  const add = 'mcp add --scope user cleanlist -e CLEANLIST_API_KEY=clapi_piped1234 -- npx -y --package @cleanlist-ai/mcp cleanlist-mcp';
+  assert.deepEqual(claude.calls(), [add, 'mcp remove --scope user cleanlist', add]);
+  assert.doesNotMatch(out.stderr + out.stdout, /clapi_piped1234/);
+});
+
+test('cli: a claude mcp add that fails for another reason leaves the earlier install alone', async () => {
+  const claude = fakeClaude({ installed: true, broken: true });
+  const out = await run(['mcp', 'install', 'claude-code', '--api-key', '-', '--yes'], claude.env, 'clapi_piped1234\n');
+  assert.equal(out.code, EXIT.ERROR);
+  assert.match(out.stderr, /claude mcp add failed: Invalid environment variable format/);
+  assert.equal(claude.calls().length, 1);
+  assert.ok(existsSync(claude.marker));
 });
 
 // completion (C12.5)

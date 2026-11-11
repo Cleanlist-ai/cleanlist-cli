@@ -112,23 +112,28 @@ export const mcpCommands: Command[] = [
       const stdioEntry = { command: STDIO.command, args: STDIO.args, env: { CLEANLIST_API_KEY: key } };
 
       if (host === 'claude-code') {
+        // The name goes before -e: -e takes every value up to the next flag,
+        // so a name after it is read as another variable.
         const args = key
-          ? ['mcp', 'add', '--scope', 'user', '-e', `CLEANLIST_API_KEY=${key}`, 'cleanlist', '--', STDIO.command, ...STDIO.args]
+          ? ['mcp', 'add', '--scope', 'user', 'cleanlist', '-e', `CLEANLIST_API_KEY=${key}`, '--', STDIO.command, ...STDIO.args]
           : ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'cleanlist', MCP_URL];
         ctx.log(`Will run: claude ${mask(args.join(' '), key)}`);
         await confirmAction(ctx, 'Add Cleanlist to Claude Code?');
+        const add = () => execFileSync('claude', args, { stdio: ['ignore', 'ignore', 'pipe'] });
         try {
-          // Replace an earlier install; it's fine if there wasn't one.
-          execFileSync('claude', ['mcp', 'remove', '--scope', 'user', 'cleanlist'], { stdio: 'ignore' });
-        } catch {
-          /* not installed yet */
-        }
-        try {
-          execFileSync('claude', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+          try {
+            add();
+          } catch (e) {
+            // Replace an earlier install only once the add is known to fail
+            // for that reason, so a failing add never leaves the user with none.
+            if (!/already exists/i.test((e as { stderr?: Buffer }).stderr?.toString() ?? '')) throw e;
+            execFileSync('claude', ['mcp', 'remove', '--scope', 'user', 'cleanlist'], { stdio: 'ignore' });
+            add();
+          }
         } catch (e) {
           const err = e as NodeJS.ErrnoException & { stderr?: Buffer };
           if (err.code === 'ENOENT') throw new CliError(EXIT.ERROR, 'The `claude` command is not on PATH.', `Install Claude Code, or run: claude ${mask(args.join(' '), key)}`);
-          throw new CliError(EXIT.ERROR, `claude mcp add failed: ${err.stderr?.toString().trim() || err.message}`);
+          throw new CliError(EXIT.ERROR, `claude mcp add failed: ${mask(err.stderr?.toString().trim() || err.message, key)}`);
         }
         ctx.log(key ? 'Added. Start a new Claude Code session to use it.' : 'Added. In Claude Code, run /mcp and sign in to Cleanlist.');
         return { host, mode, installed: true };
