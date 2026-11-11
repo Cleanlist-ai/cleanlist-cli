@@ -1,4 +1,4 @@
-import { type Command, confirmSpend, type Ctx, intOpt, jsonOpt, list, readInput } from '../context.js';
+import { type Command, type Ctx, intOpt, jsonOpt, list, readInput, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import type { View } from '../output.js';
 
@@ -55,14 +55,12 @@ async function routeQuoted(ctx: Ctx, path: string, body: Record<string, unknown>
     estimate = e instanceof CliError && e.apiCode === 'quote_required' ? (e.detail as any)?.error?.details?.estimate : undefined;
     if (!estimate) throw e;
   }
-  const q = await confirmSpend(ctx, estimate, what);
-  return (await ctx.api.post(path, { ...body, quote_id: q.quote_id })).data;
+  return spend(ctx, estimate, what, async (quote_id) => (await ctx.api.post(path, { ...body, quote_id })).data);
 }
 
 /** Social and technology pulls: the quote signs the route body itself, as `filters`. */
 async function filtersQuoted(ctx: Ctx, tool: string, path: string, body: Record<string, unknown>, what: string): Promise<any> {
-  const q = await confirmSpend(ctx, { tool, filters: body }, what);
-  return (await ctx.api.post(path, { ...body, quote_id: q.quote_id })).data;
+  return spend(ctx, { tool, filters: body }, what, async (quote_id) => (await ctx.api.post(path, { ...body, quote_id })).data);
 }
 
 /** A JSON-object flag: inline JSON, or a file / stdin holding it. */
@@ -106,7 +104,7 @@ function personas(ctx: Ctx): Record<string, unknown>[] | undefined {
   });
 }
 
-const MEETING_COLUMNS = ['meeting_id', 'title', 'started_at', 'source', 'account_domain', 'attendees'];
+const MEETING_COLUMNS = ['meeting_id', 'title', 'started_at', 'tool', 'duration_minutes', 'host_email'];
 
 export const dataCommands: Command[] = [
   {
@@ -148,10 +146,11 @@ export const dataCommands: Command[] = [
     options: {
       since: { type: 'string', desc: 'Only changes detected after this ISO date, e.g. 2026-11-01.' },
       list: { type: 'string', desc: 'Only people in this list (id).' },
+      ...limitOpt(50, 200),
     },
-    view: view(['full_name', 'previous_company', 'new_company', 'new_title', 'detected_at', 'linkedin_url']),
+    view: view(['name', 'list_name', 'new_company', 'new_title', 'left_on', 'checked_at', 'linkedin_url']),
     async run(ctx) {
-      return (await ctx.api.get('/api/v2/job-changes', { since: ctx.opts.since, list_id: ctx.opts.list })).data;
+      return (await ctx.api.get('/api/v2/job-changes', { since: ctx.opts.since, list_id: ctx.opts.list, limit: limitOf(ctx, 50, 200) })).data;
     },
   },
   {
@@ -163,7 +162,7 @@ export const dataCommands: Command[] = [
       linkedin: { type: 'string', multiple: true, desc: 'LinkedIn profile URL (repeatable or comma separated).' },
       file: { type: 'string', desc: 'File (or -) with one LinkedIn URL per line; the first CSV column is used.' },
     },
-    view: view(['full_name', 'changed', 'previous_company', 'new_company', 'new_title', 'linkedin_url']),
+    view: view(), // the row's own fields: they vary by signal type / step output
     examples: ['cleanlist job-changes check --linkedin https://linkedin.com/in/jane --yes', 'cat champions.txt | cleanlist job-changes check --file - --format jsonl'],
     async run(ctx) {
       const leadIds = list(ctx.opts.lead);
@@ -254,7 +253,7 @@ export const dataCommands: Command[] = [
       'company-domain': criteriaOpts['company-domain'],
       'domains-file': criteriaOpts['domains-file'],
     },
-    view: view(['company_domain', 'signal_type', 'title', 'detected_at', 'url']),
+    view: view(), // the row's own fields: they vary by signal type / step output
     examples: ['cleanlist companies signals --company-domain acme.com --since 2026-10-01 --yes', 'cleanlist companies signals --domains-file accounts.csv --type job_posting --format jsonl --yes'],
     async run(ctx) {
       const domains = domainsOf(ctx);
@@ -297,20 +296,23 @@ export const dataCommands: Command[] = [
       since: { type: 'string', desc: 'Only meetings after this ISO date.' },
       account: { type: 'string', desc: 'Only meetings with this company domain.' },
       person: { type: 'string', desc: 'Only meetings with this attendee email.' },
+      ...limitOpt(25, 100),
     },
     view: view(MEETING_COLUMNS),
     async run(ctx) {
-      return (await ctx.api.get('/api/v2/meetings', { since: ctx.opts.since, account_domain: ctx.opts.account, person_email: ctx.opts.person })).data;
+      const query = { since: ctx.opts.since, account_domain: ctx.opts.account, person_email: ctx.opts.person, limit: limitOf(ctx, 25, 100) };
+      return (await ctx.api.get('/api/v2/meetings', query)).data;
     },
   },
   {
     name: 'meetings read',
     args: '<meeting_id>',
-    summary: 'One meeting: summary, attendees, notes, and the transcript when the connector has one. Free.',
+    summary: 'One meeting: summary, action items and attendees; --transcript adds the transcript when the connector has one. Free.',
+    options: { transcript: { type: 'boolean', desc: 'Include the transcript (Fireflies and Fathom).' } },
     async run(ctx) {
       const id = ctx.args[0];
       if (!id) throw new CliError(EXIT.USAGE, 'Pass the meeting_id.', 'See `cleanlist meetings list`.');
-      return (await ctx.api.get(`/api/v2/meetings/${enc(id)}`)).data;
+      return (await ctx.api.get(`/api/v2/meetings/${enc(id)}`, { transcript: ctx.opts.transcript ? true : undefined })).data;
     },
   },
 ];

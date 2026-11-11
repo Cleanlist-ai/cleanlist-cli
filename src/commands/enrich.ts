@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { type Command, confirmSpend, type Ctx, isTerminal, list, poll, readInput, resolveList } from '../context.js';
+import { type Command, confirmSpend, type Ctx, isTerminal, list, poll, readInput, resolveList, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { exportCsv, importCsv } from './lists.js';
 
@@ -31,8 +31,9 @@ function scope(ctx: Ctx): string {
 /** Quote + confirm + start a bulk list enrichment. Returns the start response. */
 async function startListEnrichment(ctx: Ctx, listId: string) {
   const s = scope(ctx);
-  const q = await confirmSpend(ctx, { tool: 'enrich_list', list_id: listId, scope: s }, `Enrich list (${s})`);
-  return (await ctx.api.post('/api/v2/enrichment/bulk', { list_id: listId, scope: s, quote_id: q.quote_id })).data;
+  return spend(ctx, { tool: 'enrich_list', list_id: listId, scope: s }, `Enrich list (${s})`, async (quote_id) =>
+    (await ctx.api.post('/api/v2/enrichment/bulk', { list_id: listId, scope: s, quote_id })).data,
+  );
 }
 
 const scopeOpt = { scope: { type: 'string' as const, desc: 'partial = email + LinkedIn + title + company (1 credit/row, default); full = + phone (11); phone-only (10).' } };
@@ -129,14 +130,10 @@ export const enrichCommands: Command[] = [
       if (!task || !dataPoints) throw new CliError(EXIT.USAGE, 'Pass the task id and --data, e.g. --data Email,Phone.');
       const entityIds = list(ctx.opts.ids);
       const tool = ctx.opts.companies ? 'add_company_enrichments' : 'add_person_enrichments';
-      const q = await confirmSpend(ctx, { tool, task_id: task, data_points: dataPoints, entity_ids: entityIds }, 'Enrich search results');
-      const { data } = await ctx.api.post('/api/v2/enrichment/by-task', {
-        task_id: task,
-        data_points: dataPoints,
-        entity_ids: entityIds,
-        lead_list_id: ctx.opts.list ? await resolveList(ctx, ctx.opts.list) : undefined,
-        quote_id: q.quote_id,
-      });
+      const listId = ctx.opts.list ? await resolveList(ctx, ctx.opts.list) : undefined;
+      const { data } = await spend(ctx, { tool, task_id: task, data_points: dataPoints, entity_ids: entityIds }, 'Enrich search results', (quote_id) =>
+        ctx.api.post('/api/v2/enrichment/by-task', { task_id: task, data_points: dataPoints, entity_ids: entityIds, lead_list_id: listId, quote_id }),
+      );
       return ctx.opts.wait && data.workflow_id ? waitForWorkflow(ctx, data.workflow_id) : data;
     },
   },

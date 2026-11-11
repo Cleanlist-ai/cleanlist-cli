@@ -1,4 +1,4 @@
-import { type Command, type Ctx, confirmSpend, intOpt, isTerminal, poll, resolveList } from '../context.js';
+import { type Command, type Ctx, intOpt, isTerminal, poll, resolveList, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -55,8 +55,7 @@ export const smartAgentCommands: Command[] = [
         max_rows: ctx.opts.all ? undefined : rows,
         overwrite: Boolean(ctx.opts.overwrite),
       };
-      const q = await confirmSpend(ctx, { tool: 'run_smart_agent', ...body }, `Run ${type}`);
-      const { data } = await ctx.api.post('/api/v2/smart-agents/run', { ...body, quote_id: q.quote_id });
+      const { data } = await spend(ctx, { tool: 'run_smart_agent', ...body }, `Run ${type}`, (quote_id) => ctx.api.post('/api/v2/smart-agents/run', { ...body, quote_id }));
       return ctx.opts.wait ? waitForAgent(ctx, data.smart_agent_task_id) : data;
     },
   },

@@ -151,6 +151,9 @@ Run \`cleanlist <command> --help\` for flags and examples. Agents: \`cleanlist s
 `;
 }
 
+/** 0.2.0 gave `agents` to GTM agents; the AI-column commands kept their flags under `smart-agents`. */
+const MOVED = 'AI columns moved to `cleanlist smart-agents run|list|results` in 0.2.0; `agents` is now GTM agents. See `cleanlist agents --help`.';
+
 function fail(e: CliError, format: Format): never {
   if (format === 'table' && process.stderr.isTTY) {
     process.stderr.write(`Error: ${e.message}\n${e.fix ? `Fix: ${e.fix}\n` : ''}`);
@@ -182,6 +185,7 @@ async function main(argv: string[]): Promise<void> {
       return void process.stdout.write(target ? commandHelp(target) : prefix ? groupHelp(prefix) : mainHelp());
     }
     if (first && COMMANDS.some((c) => c.name.startsWith(first + ' '))) {
+      if (first === 'agents' && loose.positionals[1] === 'results') info(MOVED, Boolean(g.quiet));
       process.stdout.write(groupHelp(first));
       if (!g.help) process.exit(EXIT.USAGE);
       return;
@@ -201,7 +205,9 @@ async function main(argv: string[]): Promise<void> {
       allowPositionals: true,
     }).values;
   } catch (e) {
-    throw new CliError(EXIT.USAGE, (e as Error).message.replace(/\. To specify.*$/s, '.'), `Run \`cleanlist ${cmd.name} --help\`.`);
+    const old = cmd.name.startsWith('agents ') && argv.some((a) => /^--(column|prompt|template|rows|all|overwrite|type|list)(=|$)/.test(a));
+    const fix = old ? MOVED : `Run \`cleanlist ${cmd.name} --help\`.`;
+    throw new CliError(EXIT.USAGE, (e as Error).message.replace(/\. To specify.*$/s, '.'), fix);
   }
   format = values.json ? 'json' : (values.format ?? format);
   if (!['table', 'json', 'jsonl', 'csv'].includes(format)) throw new CliError(EXIT.USAGE, `--format must be table, json, jsonl or csv.`);
@@ -248,6 +254,14 @@ async function main(argv: string[]): Promise<void> {
     if (e instanceof DryRun) return print(e.output, format === 'table' ? 'table' : 'json');
     throw e;
   }
+}
+
+// `cleanlist ... | head` closes the pipe early: stop quietly instead of crashing on EPIPE.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (e: NodeJS.ErrnoException) => {
+    if (e.code === 'EPIPE') process.exit(0);
+    throw e;
+  });
 }
 
 main(process.argv.slice(2)).catch((e) => {

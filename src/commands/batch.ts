@@ -1,4 +1,4 @@
-import { type Command, confirmSpend, type Ctx, list, readInput, resolveList } from '../context.js';
+import { type Command, type Ctx, list, readInput, resolveList, spend } from '../context.js';
 import { mapColumns, parseCsv } from '../csv.js';
 import { CliError, EXIT } from '../errors.js';
 import { waitForWorkflow } from './enrich.js';
@@ -91,8 +91,9 @@ export const batchCommands: Command[] = [
       if (bad.length) throw new CliError(EXIT.USAGE, `--fields takes ${FIELDS.join(', ')}; got ${bad.join(', ')}.`);
       const items = readItems(ctx, 'people');
       const listId = ctx.opts.list ? await resolveList(ctx, ctx.opts.list) : undefined;
-      const q = await confirmSpend(ctx, { tool: 'batch_people_lookup', row_count: items.length, fields }, `Batch people lookup (${fields.join(', ')})`);
-      const { data } = await ctx.api.post('/api/v2/batch/people/lookup', { items, fields, quote_id: q.quote_id, lead_list_id: listId });
+      const { data } = await spend(ctx, { tool: 'batch_people_lookup', row_count: items.length, fields }, `Batch people lookup (${fields.join(', ')})`, (quote_id) =>
+        ctx.api.post('/api/v2/batch/people/lookup', { items, fields, quote_id, lead_list_id: listId }),
+      );
       ctx.log(`Accepted ${data.accepted_rows} of ${data.total_rows} rows.${data.workflow_id ? ` Check it with \`cleanlist enrich status ${data.workflow_id}\`.` : ''}`);
       if (!ctx.opts.wait || !data.workflow_id) return data;
       return { ...data, enrichment: await waitForWorkflow(ctx, data.workflow_id, true) };
@@ -107,8 +108,9 @@ export const batchCommands: Command[] = [
     examples: ['cleanlist batch companies domains.csv --dry-run', 'cleanlist batch companies - --yes --format jsonl < companies.jsonl'],
     async run(ctx) {
       const items = readItems(ctx, 'companies');
-      const q = await confirmSpend(ctx, { tool: 'batch_companies_lookup', row_count: items.length }, 'Batch company lookup');
-      const { data } = await ctx.api.post('/api/v2/batch/companies/lookup', { items, quote_id: q.quote_id });
+      const { data } = await spend(ctx, { tool: 'batch_companies_lookup', row_count: items.length }, 'Batch company lookup', (quote_id) =>
+        ctx.api.post('/api/v2/batch/companies/lookup', { items, quote_id }),
+      );
       ctx.log(`Looked up ${data.accepted_rows} of ${data.total_rows} rows.`);
       return data;
     },

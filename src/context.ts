@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
-import type { Api } from './api.js';
+import { type Api, retryDelayMs } from './api.js';
 import { CliError, EXIT } from './errors.js';
 import { type Format, info, type View } from './output.js';
 
@@ -107,6 +107,23 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
     'Show this cost (and any CRM note) to the user. Re-run with --yes only after they approve it.',
     { quote: q },
   );
+}
+
+/**
+ * confirmSpend, then `send` with the quote_id. A retryable 5xx means the route
+ * stopped before charging but may have spent the single-use quote, so get a
+ * fresh quote under the same rules and send once more. Any other failure ends it.
+ */
+export async function spend<T>(ctx: Ctx, estimate: Record<string, unknown>, what: string, send: (quoteId: string) => Promise<T>): Promise<T> {
+  const q = await confirmSpend(ctx, estimate, what);
+  try {
+    return await send(q.quote_id);
+  } catch (e) {
+    if (!(e instanceof CliError && e.exitCode === EXIT.ERROR && (e.detail?.error as { retryable?: unknown } | undefined)?.retryable === true)) throw e;
+    ctx.log(`${e.message} Getting a fresh quote and trying once more.`);
+    await new Promise((r) => setTimeout(r, Math.min(retryDelayMs(0, null, e.detail), 60_000)));
+    return send((await confirmSpend(ctx, estimate, what)).quote_id);
+  }
 }
 
 /** --max-credits as a number. Anything else (1,000 or 5k) exits 2 so the cap is never silently off. */

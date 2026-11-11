@@ -1,4 +1,4 @@
-import { type Command, confirmSpend, type Ctx, isTerminal, jsonOpt, poll } from '../context.js';
+import { type Command, type Ctx, isTerminal, jsonOpt, poll, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -43,8 +43,9 @@ export const playCommands: Command[] = [
       const id = ctx.args[0];
       if (!id) throw new CliError(EXIT.USAGE, 'Pass the playbook_id.', 'See `cleanlist plays list`.');
       const inputs = jsonOpt(ctx.opts.inputs, 'inputs') ?? {};
-      const q = await confirmSpend(ctx, { tool: 'run_play', playbook_id: id, row_count: 1 }, 'Run play');
-      const { data } = await ctx.api.post(`/api/v2/plays/${enc(id)}/run`, { inputs, quote_id: q.quote_id });
+      const { data } = await spend(ctx, { tool: 'run_play', playbook_id: id, row_count: 1 }, 'Run play', (quote_id) =>
+        ctx.api.post(`/api/v2/plays/${enc(id)}/run`, { inputs, quote_id }),
+      );
       // run_id is null when the run is queued behind one in progress: nothing to wait on yet.
       if (!ctx.opts.wait || !data.run_id) return data;
       return { run: await waitForRun(ctx, data.run_id), records: await records(ctx, data.run_id) };

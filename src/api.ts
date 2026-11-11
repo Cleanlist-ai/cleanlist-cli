@@ -94,6 +94,10 @@ export class Api {
 
     // One key per call, reused by its own retries, so a retried write runs once.
     const idempotencyKey = WRITES.has(method.toUpperCase()) ? randomUUID() : undefined;
+    // A quote is single-use and a route spends it before its work, so resending it after a
+    // 5xx or a dropped connection fails as already used and hides the real error. Those go
+    // back to the caller (`spend` gets a fresh quote); a 429 comes before the route and retries.
+    const quoteBound = Boolean((opts.body as { quote_id?: unknown } | undefined)?.quote_id);
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const token = await this.token(); // outside the try: a missing credential isn't a network error
@@ -111,11 +115,11 @@ export class Api {
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         });
       } catch (e) {
-        if (attempt + 1 < MAX_TRIES) {
+        if (attempt + 1 < MAX_TRIES && !quoteBound) {
           await sleep(retryDelayMs(attempt, null, undefined));
           continue;
         }
-        throw new CliError(EXIT.ERROR, `Couldn't reach ${url.origin}: ${(e as Error).message}`);
+        throw new CliError(EXIT.ERROR, `Couldn't reach ${url.origin}: ${(e as Error).message}`, quoteBound ? MAYBE_SPENT : undefined);
       }
 
       if ((res.headers.get('cleanlist-mode') ?? res.headers.get('x-cleanlist-mode')) === 'test' && this.mode !== 'test') {
@@ -138,17 +142,24 @@ export class Api {
         await this.refresh();
         continue;
       }
-      if (retryable(res.status, data) && attempt + 1 < MAX_TRIES) {
+      if (retryable(res.status, data) && !(quoteBound && res.status >= 500) && attempt + 1 < MAX_TRIES) {
         const wait = retryDelayMs(attempt, res.headers.get('retry-after'), data);
         if (wait <= MAX_WAIT_MS) {
           await sleep(wait);
           continue;
         }
       }
-      throw toError(res.status, data);
+      const err = toError(res.status, data);
+      // The server didn't say it stopped before charging: the call may have run.
+      if (quoteBound && res.status >= 500 && data?.error?.retryable !== true) {
+        throw new CliError(err.exitCode, err.message, MAYBE_SPENT, err.detail);
+      }
+      throw err;
     }
   }
 }
+
+const MAYBE_SPENT = 'It may have run and spent its quote. Check `cleanlist usage` before running it again; a re-run gets a fresh quote.';
 
 /** Map an API error body (`{error: {code, problem, fix}}` or FastAPI `{detail}`) to a CliError. */
 export function toError(status: number, data: any): CliError {

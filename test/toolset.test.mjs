@@ -98,6 +98,25 @@ test('actions run: a plain result is returned as is; --dry-run and bad --args ar
   }
 });
 
+test('actions run: an error result exits non-zero with the error; a failed confirm does too', async () => {
+  const failed = { action: 'agents.get', session_id: 'ses_1', kind: 'result', result: { error: 'not_found', message: 'No such agent.' } };
+  const ctx = fakeCtx(['agents.get'], {}, { 'POST /api/v2/actions/agents.get': failed });
+  await assert.rejects(cmd(actionCommands, 'actions run').run(ctx), (e) => {
+    assert.equal(e.exitCode, EXIT.ERROR);
+    assert.equal(e.message, 'No such agent.');
+    assert.equal(e.apiCode, 'not_found');
+    assert.equal(e.detail.session_id, 'ses_1');
+    return true;
+  });
+  const broke = fakeCtx(['agents.set_status'], { yes: true }, { ...actionRoutes, 'POST /api/v2/actions/confirm': { card_id: 'crd_1', status: 'failed', result: { error: 'insufficient_credits' } } });
+  await assert.rejects(cmd(actionCommands, 'actions run').run(broke), (e) => e.exitCode === EXIT.CREDITS && e.message === 'insufficient_credits');
+});
+
+test('actions run: a card with no credit estimate still shows and confirms', async () => {
+  const ctx = fakeCtx(['agents.set_status'], { yes: true, 'max-credits': '10' }, { ...actionRoutes, 'POST /api/v2/actions/agents.set_status': { ...card, card: { ...card.card, credits_required: null } } });
+  assert.equal((await cmd(actionCommands, 'actions run').run(ctx)).status, 'done');
+});
+
 test('actions confirm needs --session', async () => {
   await assert.rejects(cmd(actionCommands, 'actions confirm').run(fakeCtx(['crd_1'], {}, {})), (e) => e.exitCode === EXIT.USAGE);
 });
@@ -297,4 +316,20 @@ test('cli: actions run with a card exits 7 and prints the card on stdout', async
   } finally {
     server.close();
   }
+});
+
+test('cli: the old AI-column flags on agents point at smart-agents; other bad agents flags do not', async () => {
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
+      let stderr = '';
+      child.stderr.on('data', (d) => (stderr += d));
+      child.on('close', (code) => resolve({ code, stderr }));
+    });
+  const old = await run(['agents', 'run', 'Q4', '--column', 'Hook', '--prompt', 'x']);
+  assert.equal(old.code, EXIT.USAGE);
+  assert.match(old.stderr, /smart-agents/);
+  const typo = await run(['agents', 'create', '--nmae', 'x']);
+  assert.equal(typo.code, EXIT.USAGE);
+  assert.doesNotMatch(typo.stderr, /smart-agents/);
 });

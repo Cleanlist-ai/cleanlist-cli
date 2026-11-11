@@ -8,11 +8,25 @@ interface ActionResult {
   session_id: string;
   kind: 'result' | 'card';
   result?: unknown;
-  card?: { card_id: string; title: string; summary: string; credits_required: number; expires_at: string };
+  card?: { card_id: string; title: string; summary: string; credits_required: number | null; expires_at: string };
+}
+
+/**
+ * An action that ran and failed answers 200 with `{error, message}` as its
+ * result (a confirm also says `status: failed`). Exit non-zero with it, so a
+ * script or agent doesn't read a failure as done.
+ */
+function okOrThrow<T extends { result?: unknown; status?: string }>(data: T, extra: Record<string, unknown> = {}): T {
+  const r = data?.result as { error?: unknown; message?: unknown } | undefined;
+  const code = r && typeof r === 'object' && r.error ? String(r.error) : undefined;
+  if (!code && data?.status !== 'failed') return data;
+  const message = typeof r?.message === 'string' && r.message ? r.message : code ?? 'The action failed.';
+  const exit = code === 'insufficient_credits' ? EXIT.CREDITS : code === 'plan_required' ? EXIT.AUTH : EXIT.ERROR;
+  throw new CliError(exit, message, undefined, { error: { code: code ?? 'action_failed', message }, ...extra, ...data });
 }
 
 const confirmCard = async (ctx: Ctx, cardId: string, sessionId: string) =>
-  (await ctx.api.post('/api/v2/actions/confirm', { card_id: cardId, session_id: sessionId })).data;
+  okOrThrow((await ctx.api.post('/api/v2/actions/confirm', { card_id: cardId, session_id: sessionId })).data, { session_id: sessionId });
 
 /**
  * A card runs nothing until confirmed. Same rules as confirmSpend: over
@@ -21,9 +35,10 @@ const confirmCard = async (ctx: Ctx, cardId: string, sessionId: string) =>
  */
 async function settleCard(ctx: Ctx, res: ActionResult): Promise<unknown> {
   const card = res.card!;
-  const line = `${card.title}: ${card.summary} Cost: ${card.credits_required.toLocaleString()} credits.`;
+  const cost = card.credits_required;
+  const line = `${card.title}: ${card.summary}${cost == null ? '' : ` Cost: ${cost.toLocaleString()} credits.`}`;
   const max = maxCredits(ctx);
-  if (max !== undefined && card.credits_required > max) {
+  if (max !== undefined && cost != null && cost > max) {
     throw new CliError(EXIT.CREDITS, `Card costs ${card.credits_required} credits, above --max-credits ${max}. Nothing ran.`, undefined, { card: res });
   }
   if (ctx.opts.yes) {
@@ -71,7 +86,7 @@ export const actionCommands: Command[] = [
       if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: an action that spends or sends returns a card and runs nothing.');
       const body = { arguments: jsonOpt(ctx.opts.args, 'args') ?? {}, session_id: ctx.opts.session };
       const { data } = await ctx.api.post<ActionResult>(`/api/v2/actions/${enc(name)}`, body);
-      if (data.kind !== 'card') return data;
+      if (data.kind !== 'card') return okOrThrow(data);
       return { action: data.action, session_id: data.session_id, ...(await settleCard(ctx, data) as object) };
     },
   },

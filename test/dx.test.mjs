@@ -108,6 +108,35 @@ test('api: 5xx and idempotency_in_progress retry; gives up after 3 tries with th
   }
 });
 
+test('api: a quote-bound write retries a 429 but not a 5xx, which would resend a spent quote', async () => {
+  let n = 0;
+  const { server, url } = await serve((req, res) => {
+    n++;
+    if (n === 1) return json(res, 429, { error: { code: 'rate_limited', retry_after_ms: 1 } });
+    json(res, 500, { error: { code: 'internal', problem: 'boom' } });
+  });
+  try {
+    await assert.rejects(new Api(url, { type: 'api_key', key: 'k' }, 'p', false).post('/api/v2/x', { quote_id: 'qte_1' }), (e) => {
+      assert.equal(e.exitCode, EXIT.ERROR);
+      assert.match(e.fix, /may have run.*fresh quote/);
+      return true;
+    });
+    assert.equal(n, 2);
+  } finally {
+    hardClose(server);
+  }
+});
+
+test('cli: a closed stdout pipe (EPIPE) exits quietly', async () => {
+  const child = spawn(process.execPath, ['dist/cli.js', 'completion', 'bash'], { env: { ...process.env, CI: '1' } });
+  let stderr = '';
+  child.stderr.on('data', (d) => (stderr += d));
+  child.stdout.destroy();
+  const code = await new Promise((r) => child.on('close', r));
+  assert.equal(code, 0);
+  assert.doesNotMatch(stderr, /EPIPE|Error/);
+});
+
 test('api: a Retry-After longer than a minute fails at once with exit 6', async () => {
   let n = 0;
   const { server, url } = await serve((req, res) => {

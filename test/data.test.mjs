@@ -123,6 +123,25 @@ test('job-changes check with nothing to charge answers on the first call, with n
   assert.deepEqual(ctx.calls.map((c) => c.path), ['/api/v2/job-changes/check']);
 });
 
+test('a quote-bound pull that fails retryably before charging gets a fresh quote; any other failure ends it', async () => {
+  let n = 0;
+  const quotes = () => ({ ...quote, quote_id: `qte_${++n}` });
+  const flaky = (body) => {
+    if (body.quote_id === 'qte_1') throw toError(502, { error: { code: 'provider_unavailable', problem: 'down', retryable: true, retry_after_ms: 1 } });
+    return { companies: [{ domain: 'a.com' }] };
+  };
+  const ok = fakeCtx([], { yes: true, tool: ['Outreach'], 'company-criteria': '{"industries":["x"]}' }, { 'POST /api/v2/credits/estimate': quotes, 'POST /api/v2/companies/by-technology': flaky });
+  assert.equal((await cmd('companies tech').run(ok)).companies.length, 1);
+  assert.deepEqual(ok.calls.map((c) => c.body.quote_id), [undefined, 'qte_1', undefined, 'qte_2']);
+
+  const hard = () => {
+    throw toError(500, { error: { code: 'internal', problem: 'boom' } });
+  };
+  const bad = fakeCtx([], { yes: true, tool: ['Outreach'], 'company-criteria': '{"industries":["x"]}' }, { 'POST /api/v2/credits/estimate': quotes, 'POST /api/v2/companies/by-technology': hard });
+  await assert.rejects(cmd('companies tech').run(bad), (e) => e.exitCode === EXIT.ERROR);
+  assert.equal(bad.calls.length, 2);
+});
+
 test('job-changes check takes exactly one kind of id', async () => {
   for (const opts of [{}, { lead: ['l1'], linkedin: ['https://linkedin.com/in/a'] }]) {
     const c = fakeCtx([], { yes: true, ...opts }, {});
@@ -134,12 +153,19 @@ test('job-changes check takes exactly one kind of id', async () => {
 test('job-changes list and meetings map flags to the C14 query names; meeting ids are encoded', async () => {
   const jc = fakeCtx([], { since: '2026-11-01', list: 'lst_1' }, { 'GET /api/v2/job-changes': { job_changes: [] } });
   await cmd('job-changes list').run(jc);
-  assert.deepEqual(jc.calls[0].query, { since: '2026-11-01', list_id: 'lst_1' });
+  assert.deepEqual(jc.calls[0].query, { since: '2026-11-01', list_id: 'lst_1', limit: 50 });
   const ml = fakeCtx([], { account: 'acme.com', person: 'jane@acme.com' }, { 'GET /api/v2/meetings': { meetings: [] } });
   await cmd('meetings list').run(ml);
-  assert.deepEqual(ml.calls[0].query, { since: undefined, account_domain: 'acme.com', person_email: 'jane@acme.com' });
+  assert.deepEqual(ml.calls[0].query, { since: undefined, account_domain: 'acme.com', person_email: 'jane@acme.com', limit: 25 });
   const mr = fakeCtx(['a/b'], {}, { 'GET /api/v2/meetings/a%2Fb': { meeting_id: 'a/b' } });
   assert.equal((await cmd('meetings read').run(mr)).meeting_id, 'a/b');
+  assert.deepEqual(mr.calls[0].query, { transcript: undefined });
+  const mt = fakeCtx(['m1'], { transcript: true }, { 'GET /api/v2/meetings/m1': {} });
+  await cmd('meetings read').run(mt);
+  assert.deepEqual(mt.calls[0].query, { transcript: true });
+  for (const [name, limit] of [['job-changes list', '201'], ['meetings list', '101']]) {
+    await assert.rejects(cmd(name).run(fakeCtx([], { limit }, {})), (e) => e.exitCode === EXIT.USAGE);
+  }
   await assert.rejects(cmd('meetings read').run(fakeCtx([], {}, {})), (e) => e.exitCode === EXIT.USAGE);
 });
 

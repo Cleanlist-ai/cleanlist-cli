@@ -1,4 +1,4 @@
-import { type Command, confirmSpend, type Ctx, jsonOpt } from '../context.js';
+import { type Command, type Ctx, jsonOpt, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { waitForRun } from './plays.js';
 
@@ -84,8 +84,9 @@ export const agentCommands: Command[] = [
     async run(ctx) {
       const id = agentId(ctx);
       const playbookId = ctx.opts.play;
-      const q = await confirmSpend(ctx, { tool: 'run_gtm_agent', agent_id: id, playbook_id: playbookId }, 'Run agent');
-      const { data } = await ctx.api.post(`/api/v2/gtm-agents/${enc(id)}/run`, { playbook_id: playbookId, quote_id: q.quote_id });
+      const { data } = await spend(ctx, { tool: 'run_gtm_agent', agent_id: id, playbook_id: playbookId }, 'Run agent', (quote_id) =>
+        ctx.api.post(`/api/v2/gtm-agents/${enc(id)}/run`, { playbook_id: playbookId, quote_id }),
+      );
       // run_id is null when the run is queued behind one in progress: nothing to wait on yet.
       return ctx.opts.wait && data.run_id ? waitForRun(ctx, data.run_id) : data;
     },
