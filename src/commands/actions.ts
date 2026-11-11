@@ -1,4 +1,4 @@
-import { ask, type Command, type Ctx, interactive, jsonOpt, maxCredits } from '../context.js';
+import { ask, type Command, type Ctx, interactive, jsonOpt, maxCredits, requireArg } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -39,7 +39,7 @@ async function settleCard(ctx: Ctx, res: ActionResult): Promise<unknown> {
   const line = `${card.title}: ${card.summary}${cost == null ? '' : ` Cost: ${cost.toLocaleString()} credits.`}`;
   const max = maxCredits(ctx);
   if (max !== undefined && cost != null && cost > max) {
-    throw new CliError(EXIT.CREDITS, `Card costs ${card.credits_required} credits, above --max-credits ${max}. Nothing ran.`, undefined, { card: res });
+    throw new CliError(EXIT.CREDITS, `Card costs ${cost} credits, above --max-credits ${max}. Nothing ran.`, 'Raise --max-credits, or narrow the job.', { card: res });
   }
   if (ctx.opts.yes) {
     ctx.log(line);
@@ -82,8 +82,7 @@ export const actionCommands: Command[] = [
       `cleanlist actions run agents.set_status --args '{"agent_id":"...","status":"on"}' --session <session_id>`,
     ],
     async run(ctx) {
-      const name = ctx.args[0];
-      if (!name) throw new CliError(EXIT.USAGE, 'Pass the action name, e.g. agents.get.', 'See `cleanlist actions list`.');
+      const name = requireArg(ctx, 'action name, e.g. agents.get', 'actions list');
       if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: an action that spends or sends returns a card and runs nothing.');
       const body = { arguments: jsonOpt(ctx.opts.args, 'args') ?? {}, session_id: ctx.opts.session };
       const { data } = await ctx.api.post<ActionResult>(`/api/v2/actions/${enc(name)}`, body);
@@ -98,8 +97,7 @@ export const actionCommands: Command[] = [
     options: { session: { type: 'string', desc: 'session_id the card came with (required).' } },
     examples: ['cleanlist actions confirm <card_id> --session <session_id>'],
     async run(ctx) {
-      const cardId = ctx.args[0];
-      if (!cardId) throw new CliError(EXIT.USAGE, 'Pass the card_id.');
+      const cardId = requireArg(ctx, 'card_id');
       if (!ctx.opts.session) throw new CliError(EXIT.USAGE, 'Pass --session, the session_id the card came with.');
       return confirmCard(ctx, cardId, ctx.opts.session);
     },

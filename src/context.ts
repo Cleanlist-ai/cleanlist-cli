@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
-import { type Api, retryDelayMs } from './api.js';
+import { type Api, MAX_WAIT_MS, retryDelayMs, sleep } from './api.js';
 import { CliError, EXIT } from './errors.js';
 import { type Format, info, type View } from './output.js';
 
@@ -135,7 +135,7 @@ export async function spend<T>(ctx: Ctx, estimate: Record<string, unknown>, what
   } catch (e) {
     if (!(e instanceof CliError && e.exitCode === EXIT.ERROR && (e.detail?.error as { retryable?: unknown } | undefined)?.retryable === true)) throw e;
     ctx.log(`${e.message} Getting a fresh quote and trying once more.`);
-    await new Promise((r) => setTimeout(r, Math.min(retryDelayMs(0, null, e.detail), 60_000)));
+    await sleep(Math.min(retryDelayMs(0, null, e.detail), MAX_WAIT_MS));
     return send((await confirmSpend(ctx, estimate, what)).quote_id);
   }
 }
@@ -213,17 +213,37 @@ export async function sendApproved(ctx: Ctx, path: string, body: Record<string, 
   }
 }
 
-/** A flag holding a JSON object (`--args '{"a":1}'`). */
-export function jsonOpt(v: unknown, name: string): Record<string, unknown> | undefined {
-  if (v === undefined) return undefined;
-  let parsed: unknown;
+function parseJsonFlag(v: unknown, name: string): unknown {
   try {
-    parsed = JSON.parse(String(v));
+    return JSON.parse(String(v));
   } catch (e) {
     throw new CliError(EXIT.USAGE, `--${name} is not valid JSON: ${(e as Error).message}`);
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new CliError(EXIT.USAGE, `--${name} must be a JSON object.`);
-  return parsed as Record<string, unknown>;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/** A flag holding a JSON object (`--args '{"a":1}'`). */
+export function jsonOpt(v: unknown, name: string): Record<string, unknown> | undefined {
+  if (v === undefined) return undefined;
+  const parsed = parseJsonFlag(v, name);
+  if (!isObject(parsed)) throw new CliError(EXIT.USAGE, `--${name} must be a JSON object.`);
+  return parsed;
+}
+
+/** A flag holding a JSON array of objects (`--changes '[{...}]'`). */
+export function jsonArray(v: unknown, name: string): Record<string, unknown>[] | undefined {
+  if (v === undefined) return undefined;
+  const parsed = parseJsonFlag(v, name);
+  if (!Array.isArray(parsed) || !parsed.length || !parsed.every(isObject)) throw new CliError(EXIT.USAGE, `--${name} must be a JSON array of objects.`);
+  return parsed;
+}
+
+/** The first positional argument, or exit 2 naming it and the command that lists them. */
+export function requireArg(ctx: Ctx, what: string, see?: string): string {
+  const v = ctx.args[0];
+  if (!v) throw new CliError(EXIT.USAGE, `Pass the ${what}.`, see ? `See \`cleanlist ${see}\`.` : undefined);
+  return v;
 }
 
 const TERMINAL = new Set(['completed', 'completed_with_errors', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
@@ -251,7 +271,7 @@ export async function poll<T>(ctx: Ctx, fetchOnce: () => Promise<T>, done: (d: T
     if (Date.now() + delay > deadline) {
       throw new CliError(EXIT.TIMEOUT, 'Still running; stopped waiting.', `Resume with: ${resume}`, { last: data as any });
     }
-    await new Promise((r) => setTimeout(r, delay));
+    await sleep(delay);
     delay = Math.min(delay * 1.5, 15_000);
   }
 }

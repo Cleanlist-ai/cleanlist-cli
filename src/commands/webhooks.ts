@@ -1,4 +1,4 @@
-import { type Command, confirmAction, list } from '../context.js';
+import { type Command, confirmAction, list, requireArg } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -36,8 +36,7 @@ export const webhookCommands: Command[] = [
     examples: ['cleanlist webhooks remove <webhook_id> --yes'],
     paid: true,
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the webhook_id.', 'See `cleanlist webhooks list`.');
+      const id = requireArg(ctx, 'webhook_id', 'webhooks list');
       await confirmAction(ctx, `Delete webhook ${id}?`);
       return (await ctx.api.request('DELETE', `/api/v2/webhooks/${enc(id)}`)).data;
     },

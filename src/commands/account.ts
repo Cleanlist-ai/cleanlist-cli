@@ -10,7 +10,7 @@ import {
   testCredentialName,
   useProfile,
 } from '../config.js';
-import { type Command, confirmSpend, DryRun, intOpt, list, readKey, resolveList } from '../context.js';
+import { type Command, confirmSpend, DryRun, intOpt, list, readKey, requireArg, resolveList } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { loginDevice, loginLoopback, revoke } from '../oauth.js';
 
@@ -136,8 +136,7 @@ export const accountCommands: Command[] = [
     noAuth: true,
     examples: ['cleanlist use acme', 'cleanlist profiles'],
     async run(ctx) {
-      const name = ctx.args[0];
-      if (!name) throw new CliError(EXIT.USAGE, 'Name the profile to use.', 'See `cleanlist profiles`.');
+      const name = requireArg(ctx, 'profile name', 'profiles');
       if (!useProfile(name)) throw new CliError(EXIT.NOT_FOUND, `No profile named "${name}".`, `See \`cleanlist profiles\`, or sign in with \`cleanlist login --profile ${name}\`.`);
       const p = loadConfig().profiles[name];
       ctx.log(`Now using profile "${name}" (${p.organizationName ?? p.organizationId ?? 'workspace'}).`);

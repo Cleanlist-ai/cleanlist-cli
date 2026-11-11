@@ -1,15 +1,11 @@
-import { type Command, type Ctx, jsonOpt, spend } from '../context.js';
+import { type Command, type Ctx, jsonOpt, requireArg, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { waitForRun } from './plays.js';
 
 const enc = encodeURIComponent;
 const AGENT_COLUMNS = ['id', 'name', 'status', 'playIds', 'modifiedAt'];
 
-function agentId(ctx: Ctx): string {
-  const id = ctx.args[0];
-  if (!id) throw new CliError(EXIT.USAGE, 'Pass the agent id.', 'See `cleanlist agents list`.');
-  return id;
-}
+const agentId = (ctx: Ctx) => requireArg(ctx, 'agent id', 'agents list');
 
 const setStatus = (status: 'on' | 'off'): Command => ({
   name: `agents ${status}`,

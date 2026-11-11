@@ -1,15 +1,11 @@
-import { type Command, type Ctx, intOpt } from '../context.js';
+import { type Command, type Ctx, intOpt, requireArg } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
 const STATUSES = ['open', 'due', 'overdue', 'done', 'all'];
 const TYPES = ['Call', 'Manual', 'Reply'];
 
-function taskId(ctx: Ctx): string {
-  const id = ctx.args[0];
-  if (!id) throw new CliError(EXIT.USAGE, 'Pass the task id.', 'See `cleanlist tasks list`.');
-  return id;
-}
+const taskId = (ctx: Ctx) => requireArg(ctx, 'task id', 'tasks list');
 
 /** Call, manual or reply, in any case; the API takes "Call", "Manual", "Reply". */
 function taskType(v: unknown, allowed: string[]): string | undefined {

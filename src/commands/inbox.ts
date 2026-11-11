@@ -1,15 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { type Command, type Ctx, intOpt, readInput, sendApproved } from '../context.js';
+import { type Command, type Ctx, intOpt, readInput, requireArg, sendApproved } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
 const STATUSES = ['open', 'needs_reply', 'snoozed', 'done'];
 
-function threadId(ctx: Ctx): string {
-  const id = ctx.args[0];
-  if (!id) throw new CliError(EXIT.USAGE, 'Pass the thread id.', 'See `cleanlist inbox list`.');
-  return id;
-}
+const threadId = (ctx: Ctx) => requireArg(ctx, 'thread id', 'inbox list');
 
 export const inboxCommands: Command[] = [
   {

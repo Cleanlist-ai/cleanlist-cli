@@ -1,5 +1,4 @@
-import { type Command, type Ctx, isTerminal, jsonOpt, poll, spend } from '../context.js';
-import { CliError, EXIT } from '../errors.js';
+import { type Command, type Ctx, isTerminal, jsonOpt, poll, requireArg, spend } from '../context.js';
 
 const enc = encodeURIComponent;
 
@@ -41,8 +40,7 @@ export const playCommands: Command[] = [
     options: { inputs: { type: 'string', desc: 'The play\'s inputs as a JSON object (see `plays list`).' }, ...waitOpts },
     examples: [`cleanlist plays run <playbook_id> --inputs '{"email":"jane@acme.com"}' --yes --wait`],
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the playbook_id.', 'See `cleanlist plays list`.');
+      const id = requireArg(ctx, 'playbook_id', 'plays list');
       const inputs = jsonOpt(ctx.opts.inputs, 'inputs') ?? {};
       const { data } = await spend(ctx, { tool: 'run_play', playbook_id: id, row_count: 1 }, 'Run play', (quote_id) =>
         ctx.api.post(`/api/v2/plays/${enc(id)}/run`, { inputs, quote_id }),
@@ -59,8 +57,7 @@ export const playCommands: Command[] = [
     examples: ['cleanlist plays results <run_id> --wait', 'cleanlist plays results <run_id> --limit 100 --json > run.json'],
     options: { limit: { type: 'string', desc: 'Records per page (max 500).' }, cursor: { type: 'string', desc: 'Next page: the last answer\'s records.nextCursor.' }, ...waitOpts },
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the run_id.');
+      const id = requireArg(ctx, 'run_id');
       const run = ctx.opts.wait ? await waitForRun(ctx, id) : (await ctx.api.get(`/api/v2/gtm-runs/${enc(id)}`)).data;
       return { run, records: await records(ctx, id) };
     },

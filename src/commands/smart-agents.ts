@@ -1,4 +1,4 @@
-import { type Command, type Ctx, intOpt, isTerminal, poll, resolveList, spend } from '../context.js';
+import { type Command, type Ctx, intOpt, isTerminal, poll, requireArg, resolveList, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
@@ -78,8 +78,7 @@ export const smartAgentCommands: Command[] = [
     options: { wait: { type: 'boolean', desc: 'Block until it finishes.' }, timeout: { type: 'string', desc: 'Default 30m.' } },
     view: RESULT_VIEW,
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the smart_agent_task_id.');
+      const id = requireArg(ctx, 'smart_agent_task_id', 'smart-agents list');
       return ctx.opts.wait ? waitForAgent(ctx, id) : (await ctx.api.get(`/api/v2/smart-agents/${enc(id)}`)).data;
     },
   },

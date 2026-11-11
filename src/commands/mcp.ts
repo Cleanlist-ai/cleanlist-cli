@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { type Command, confirmAction, readKey } from '../context.js';
+import { type Command, confirmAction, type Ctx, readKey } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 export const MCP_URL = 'https://mcp.cleanlist.ai/v1/mcp';
@@ -87,6 +87,62 @@ function writeConfig(path: string, content: string, key?: string): void {
   writeFileSync(path, content, { mode: 0o600 });
 }
 
+async function installClaudeCode(ctx: Ctx, key: string | undefined): Promise<void> {
+  // The name goes before -e: -e takes every value up to the next flag,
+  // so a name after it is read as another variable.
+  const args = key
+    ? ['mcp', 'add', '--scope', 'user', 'cleanlist', '-e', `CLEANLIST_API_KEY=${key}`, '--', STDIO.command, ...STDIO.args]
+    : ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'cleanlist', MCP_URL];
+  ctx.log(`Will run: claude ${mask(args.join(' '))}`);
+  await confirmAction(ctx, 'Add Cleanlist to Claude Code?');
+  const add = () => execFileSync('claude', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  try {
+    try {
+      add();
+    } catch (e) {
+      // Replace an earlier install only once the add is known to fail
+      // for that reason, so a failing add never leaves the user with none.
+      if (!/already exists/i.test((e as { stderr?: Buffer }).stderr?.toString() ?? '')) throw e;
+      execFileSync('claude', ['mcp', 'remove', '--scope', 'user', 'cleanlist'], { stdio: 'ignore' });
+      add();
+    }
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException & { stderr?: Buffer };
+    if (err.code === 'ENOENT') throw new CliError(EXIT.ERROR, 'The `claude` command is not on PATH.', `Install Claude Code, or run: claude ${mask(args.join(' '))}`);
+    throw new CliError(EXIT.ERROR, `claude mcp add failed: ${mask(err.stderr?.toString().trim() || err.message)}`);
+  }
+  ctx.log(key ? 'Added. Start a new Claude Code session to use it.' : 'Added. In Claude Code, run /mcp and sign in to Cleanlist.');
+}
+
+/** Merge the server into the app's config file, show the diff, and write it once confirmed. */
+async function installConfigFile(ctx: Ctx, host: Exclude<Host, 'claude-code'>, key: string | undefined): Promise<{ path: string; changed: boolean }> {
+  const path = host === 'codex' ? join(homedir(), '.codex', 'config.toml') : host === 'cursor' ? join(homedir(), '.cursor', 'mcp.json') : desktopConfigPath();
+  const exists = existsSync(path);
+  const before = exists ? readFileSync(path, 'utf8') : '';
+  let next: string;
+  if (host === 'codex') {
+    next = mergeCodexConfig(before, codexBlock(key));
+  } else {
+    // Claude Desktop's config file only runs local servers; mcp-remote bridges the hosted one and its sign-in.
+    const oauthEntry = host === 'cursor' ? { url: MCP_URL } : { command: 'npx', args: ['-y', 'mcp-remote', MCP_URL] };
+    next = mergeJsonConfig(before, key ? { command: STDIO.command, args: STDIO.args, env: { CLEANLIST_API_KEY: key } } : oauthEntry, path);
+  }
+  if (before === next) {
+    ctx.log(`${path} already has this Cleanlist server.`);
+    return { path, changed: false };
+  }
+  ctx.log(`${exists ? 'Changes to' : 'New file'} ${path}:\n${mask(lineDiff(before, next))}`);
+  await confirmAction(ctx, `Write ${path}?`);
+  writeConfig(path, next, key);
+  const after = {
+    cursor: 'Restart Cursor (or reload MCP servers) and sign in to Cleanlist when it asks.',
+    'claude-desktop': 'Restart Claude Desktop.',
+    codex: key ? 'Start a new Codex session.' : 'Run `codex mcp login cleanlist` to sign in.',
+  }[host];
+  ctx.log(`Wrote ${path}. ${after}`);
+  return { path, changed: true };
+}
+
 export const mcpCommands: Command[] = [
   {
     name: 'mcp install',
@@ -110,62 +166,12 @@ export const mcpCommands: Command[] = [
       const key = ctx.opts['api-key'] === undefined ? undefined : await readKey(ctx.opts['api-key']);
       if (key !== undefined && !String(key).startsWith('clapi_')) throw new CliError(EXIT.USAGE, 'That is not a Cleanlist API key (they start with clapi_).');
       const mode = key ? 'api_key' : 'oauth';
-      const stdioEntry = { command: STDIO.command, args: STDIO.args, env: { CLEANLIST_API_KEY: key } };
-
       if (host === 'claude-code') {
-        // The name goes before -e: -e takes every value up to the next flag,
-        // so a name after it is read as another variable.
-        const args = key
-          ? ['mcp', 'add', '--scope', 'user', 'cleanlist', '-e', `CLEANLIST_API_KEY=${key}`, '--', STDIO.command, ...STDIO.args]
-          : ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'cleanlist', MCP_URL];
-        ctx.log(`Will run: claude ${mask(args.join(' '))}`);
-        await confirmAction(ctx, 'Add Cleanlist to Claude Code?');
-        const add = () => execFileSync('claude', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-        try {
-          try {
-            add();
-          } catch (e) {
-            // Replace an earlier install only once the add is known to fail
-            // for that reason, so a failing add never leaves the user with none.
-            if (!/already exists/i.test((e as { stderr?: Buffer }).stderr?.toString() ?? '')) throw e;
-            execFileSync('claude', ['mcp', 'remove', '--scope', 'user', 'cleanlist'], { stdio: 'ignore' });
-            add();
-          }
-        } catch (e) {
-          const err = e as NodeJS.ErrnoException & { stderr?: Buffer };
-          if (err.code === 'ENOENT') throw new CliError(EXIT.ERROR, 'The `claude` command is not on PATH.', `Install Claude Code, or run: claude ${mask(args.join(' '))}`);
-          throw new CliError(EXIT.ERROR, `claude mcp add failed: ${mask(err.stderr?.toString().trim() || err.message)}`);
-        }
-        ctx.log(key ? 'Added. Start a new Claude Code session to use it.' : 'Added. In Claude Code, run /mcp and sign in to Cleanlist.');
+        await installClaudeCode(ctx, key);
         return { host, mode, installed: true };
       }
-
-      let path: string;
-      let next: string;
-      if (host === 'codex') {
-        path = join(homedir(), '.codex', 'config.toml');
-        next = mergeCodexConfig(existsSync(path) ? readFileSync(path, 'utf8') : undefined, codexBlock(key));
-      } else {
-        path = host === 'cursor' ? join(homedir(), '.cursor', 'mcp.json') : desktopConfigPath();
-        // Claude Desktop's config file only runs local servers; mcp-remote bridges the hosted one and its sign-in.
-        const oauthEntry = host === 'cursor' ? { url: MCP_URL } : { command: 'npx', args: ['-y', 'mcp-remote', MCP_URL] };
-        next = mergeJsonConfig(existsSync(path) ? readFileSync(path, 'utf8') : undefined, key ? stdioEntry : oauthEntry, path);
-      }
-      const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
-      if (before === next) {
-        ctx.log(`${path} already has this Cleanlist server.`);
-        return { host, mode, path, installed: true, changed: false };
-      }
-      ctx.log(`${existsSync(path) ? 'Changes to' : 'New file'} ${path}:\n${mask(lineDiff(before, next))}`);
-      await confirmAction(ctx, `Write ${path}?`);
-      writeConfig(path, next, key);
-      const after = {
-        cursor: 'Restart Cursor (or reload MCP servers) and sign in to Cleanlist when it asks.',
-        'claude-desktop': 'Restart Claude Desktop.',
-        codex: key ? 'Start a new Codex session.' : 'Run `codex mcp login cleanlist` to sign in.',
-      }[host];
-      ctx.log(`Wrote ${path}. ${after}`);
-      return { host, mode, path, installed: true, changed: true };
+      const { path, changed } = await installConfigFile(ctx, host, key);
+      return { host, mode, path, installed: true, changed };
     },
   },
 ];

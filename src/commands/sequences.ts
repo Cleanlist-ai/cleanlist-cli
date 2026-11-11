@@ -1,29 +1,10 @@
-import { type Command, type Ctx, jsonOpt, list, resolveList, sendApproved } from '../context.js';
+import { type Command, type Ctx, jsonArray, jsonOpt, list, requireArg, resolveList, sendApproved } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
 const STATUSES = ['launch', 'pause', 'resume'];
 
-function sequenceId(ctx: Ctx): string {
-  const id = ctx.args[0];
-  if (!id) throw new CliError(EXIT.USAGE, 'Pass the sequence id.', 'See `cleanlist sequences list`.');
-  return id;
-}
-
-/** A flag holding a JSON array of objects (`--changes '[{...}]'`). */
-function jsonArray(v: unknown, name: string): Record<string, unknown>[] | undefined {
-  if (v === undefined) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(String(v));
-  } catch (e) {
-    throw new CliError(EXIT.USAGE, `--${name} is not valid JSON: ${(e as Error).message}`);
-  }
-  if (!Array.isArray(parsed) || !parsed.length || parsed.some((c) => !c || typeof c !== 'object' || Array.isArray(c))) {
-    throw new CliError(EXIT.USAGE, `--${name} must be a JSON array of objects.`);
-  }
-  return parsed;
-}
+const sequenceId = (ctx: Ctx) => requireArg(ctx, 'sequence id', 'sequences list');
 
 export const sequenceCommands: Command[] = [
   {

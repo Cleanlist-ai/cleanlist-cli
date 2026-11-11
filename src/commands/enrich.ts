@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { type Command, confirmSpend, type Ctx, isTerminal, list, poll, readInput, resolveList, spend } from '../context.js';
+import { type Command, confirmSpend, type Ctx, isTerminal, list, poll, readInput, requireArg, resolveList, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { exportCsv, importCsv } from './lists.js';
 
@@ -193,8 +193,7 @@ export const enrichCommands: Command[] = [
     examples: ['cleanlist enrich status <workflow_id> --results --wait'],
     options: { results: { type: 'boolean', desc: 'Include per-person results.' }, ...waitOpts },
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the workflow id.');
+      const id = requireArg(ctx, 'workflow id');
       if (ctx.opts.wait) return waitForWorkflow(ctx, id, Boolean(ctx.opts.results));
       return (await ctx.api.get(`/api/v2/enrichment/status/${enc(id)}`, { include_results: ctx.opts.results || undefined })).data;
     },

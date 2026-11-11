@@ -15,8 +15,8 @@ const WRITES = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 /** Tries per request for 429, 5xx, a write still running elsewhere, and network errors. */
 export const MAX_TRIES = 3;
 /** Longer waits than this aren't worth blocking on: fail with exit 6 and say when to retry. */
-const MAX_WAIT_MS = 60_000;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const MAX_WAIT_MS = 60_000;
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * How long to wait before retry number `attempt` (0-based): the server's

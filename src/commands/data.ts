@@ -1,4 +1,4 @@
-import { type Command, type Ctx, intOpt, jsonOpt, list, readInput, spend } from '../context.js';
+import { type Command, type Ctx, intOpt, jsonOpt, list, readInput, requireArg, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import type { View } from '../output.js';
 
@@ -34,7 +34,7 @@ const companyCriteria = (ctx: Ctx) => jsonArg(ctx, 'company-criteria');
  * Big pulls answer with a task handle instead of rows. The task read-back is
  * MCP-only, so people pulls point at the CLI's own path: save into a list.
  */
-function withRows(ctx: Ctx, data: any, people = false): any {
+function logTaskHint(ctx: Ctx, data: any, { people = false } = {}): any {
   if (data?.task_id && !rowsOf(data).length) {
     ctx.log(`Started as task ${data.task_id}.${people ? ` Save the people: cleanlist lists add <list> --from-task ${data.task_id}` : ''}`);
   }
@@ -137,7 +137,7 @@ export const dataCommands: Command[] = [
       if (!body.titles && !body.keywords && !body.company_domains && !body.company_criteria) {
         throw new CliError(EXIT.USAGE, 'Add --title, --keyword, --company-domain or --company-criteria.', 'See `cleanlist jobs search --help`.');
       }
-      return withRows(ctx, await routeQuoted(ctx, '/api/v2/jobs/search', body, 'Job postings search'));
+      return logTaskHint(ctx, await routeQuoted(ctx, '/api/v2/jobs/search', body, 'Job postings search'));
     },
   },
   {
@@ -170,7 +170,7 @@ export const dataCommands: Command[] = [
       const urls = values(ctx, 'linkedin', 'file');
       if (!leadIds === !urls) throw new CliError(EXIT.USAGE, 'Pass --lead or --linkedin/--file (one kind, not both).');
       const data = await routeQuoted(ctx, '/api/v2/job-changes/check', { lead_ids: leadIds, linkedin_urls: urls }, 'Job change check');
-      return withRows(ctx, data, true);
+      return logTaskHint(ctx, data, { people: true });
     },
   },
   {
@@ -221,7 +221,7 @@ export const dataCommands: Command[] = [
         posted_within_days: intOpt(ctx.opts['posted-within-days'], 'posted-within-days') ?? 14,
         limit: limitOf(ctx, 25, 100),
       };
-      return withRows(ctx, await filtersQuoted(ctx, 'post_engagers', '/api/v2/linkedin/posts/engagers', body, 'Post engagers'), true);
+      return logTaskHint(ctx, await filtersQuoted(ctx, 'post_engagers', '/api/v2/linkedin/posts/engagers', body, 'Post engagers'), { people: true });
     },
   },
   {
@@ -241,7 +241,7 @@ export const dataCommands: Command[] = [
       const criteria = companyCriteria(ctx);
       if (!criteria || !Object.keys(criteria).length) throw new CliError(EXIT.USAGE, 'Pass --company-criteria, the company filters the companies must match.');
       const body = { tools, company_criteria: criteria, limit: limitOf(ctx, 25, 200) };
-      return withRows(ctx, await filtersQuoted(ctx, 'companies_by_technology', '/api/v2/companies/by-technology', body, 'Companies by technology'));
+      return logTaskHint(ctx, await filtersQuoted(ctx, 'companies_by_technology', '/api/v2/companies/by-technology', body, 'Companies by technology'));
     },
   },
   {
@@ -260,7 +260,7 @@ export const dataCommands: Command[] = [
       const domains = domainsOf(ctx);
       if (!domains) throw new CliError(EXIT.USAGE, 'Pass --company-domain or --domains-file.');
       const body = { signal_types: list(ctx.opts.type) ?? SIGNAL_TYPES, company_domains: domains, since: ctx.opts.since };
-      return withRows(ctx, await routeQuoted(ctx, '/api/v2/companies/signals', body, 'Company signals'));
+      return logTaskHint(ctx, await routeQuoted(ctx, '/api/v2/companies/signals', body, 'Company signals'));
     },
   },
   {
@@ -273,8 +273,7 @@ export const dataCommands: Command[] = [
     view: { rows: (d) => (d.groups ?? []).flatMap((g: any) => (g.people ?? []).map((p: any) => ({ group: g.label, ...p }))), columns: ['group', 'full_name', 'title', 'in_crm', 'linkedin_url'] },
     examples: ['cleanlist companies committee acme.com --persona "Sales leadership=VP Sales,CRO" --persona "RevOps=Head of RevOps"'],
     async run(ctx) {
-      const company = ctx.args[0];
-      if (!company) throw new CliError(EXIT.USAGE, 'Pass the company domain, e.g. acme.com.');
+      const company = requireArg(ctx, 'company domain, e.g. acme.com');
       const { data } = await ctx.api.post('/api/v2/companies/buying-committee', { company, personas: personas(ctx) });
       if (data?.crm_note) ctx.log(data.crm_note);
       return data;
@@ -286,8 +285,7 @@ export const dataCommands: Command[] = [
     summary: 'A company\'s org structure: departments, leaders and headcount. Free.',
     examples: ['cleanlist companies org acme.com'],
     async run(ctx) {
-      const company = ctx.args[0];
-      if (!company) throw new CliError(EXIT.USAGE, 'Pass the company domain, e.g. acme.com.');
+      const company = requireArg(ctx, 'company domain, e.g. acme.com');
       return (await ctx.api.get('/api/v2/companies/org-structure', { company })).data;
     },
   },
@@ -314,8 +312,7 @@ export const dataCommands: Command[] = [
     examples: ['cleanlist meetings read <meeting_id> --transcript'],
     options: { transcript: { type: 'boolean', desc: 'Include the transcript (Fireflies and Fathom).' } },
     async run(ctx) {
-      const id = ctx.args[0];
-      if (!id) throw new CliError(EXIT.USAGE, 'Pass the meeting_id.', 'See `cleanlist meetings list`.');
+      const id = requireArg(ctx, 'meeting_id', 'meetings list');
       return (await ctx.api.get(`/api/v2/meetings/${enc(id)}`, { transcript: ctx.opts.transcript ? true : undefined })).data;
     },
   },

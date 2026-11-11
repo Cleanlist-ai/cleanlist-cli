@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { toError } from '../api.js';
+import { sleep, toError } from '../api.js';
 import { type Command, type Ctx, list, parseDuration } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { printRows } from '../output.js';
@@ -157,7 +157,7 @@ async function followLogs(ctx: Ctx, query: Record<string, unknown>): Promise<voi
   let seen = new Set<string>(first.filter((r: any) => r.time === since).map((r: any) => r.id));
   printLogs(ctx, [...first].reverse(), true);
   while (!stopped) {
-    await new Promise((r) => setTimeout(r, 2000));
+    await sleep(2000);
     if (stopped) break;
     const fresh = (await fetchLogs(ctx, { ...query, since })).filter((r) => !seen.has(r.id));
     if (!fresh.length) continue;
