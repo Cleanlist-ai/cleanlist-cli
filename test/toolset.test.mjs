@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { toError } from '../dist/api.js';
 import { actionCommands } from '../dist/commands/actions.js';
@@ -10,40 +8,30 @@ import { playCommands } from '../dist/commands/plays.js';
 import { sequenceCommands } from '../dist/commands/sequences.js';
 import { taskCommands } from '../dist/commands/tasks.js';
 import { updateCommands } from '../dist/commands/updates.js';
-import { jsonOpt, sendApproved } from '../dist/context.js';
+import { jsonArray, jsonOpt, requireArg, sendApproved } from '../dist/context.js';
 import { EXIT } from '../dist/errors.js';
+import { fakeCtx, quote, runCli } from './helpers.mjs';
 
 const cmd = (list, name) => list.find((c) => c.name === name);
-const quote = { quote_id: 'qte_1', estimated_cost: 40, available_credits: 1000, row_count: 1, sufficient: true, expires_at: 0, tool: 'x' };
-
-/** A ctx whose API records every call and answers from `routes` (path → body or function). */
-function fakeCtx(args, opts, routes) {
-  const calls = [];
-  const answer = async (method, path, body, query) => {
-    calls.push({ method, path, body, ...(query ? { query } : {}) });
-    const r = routes[`${method} ${path}`];
-    if (r === undefined) throw new Error(`unexpected ${method} ${path}`);
-    return { status: 200, data: typeof r === 'function' ? r(body) : r };
-  };
-  return {
-    calls,
-    args,
-    opts: { 'no-input': true, ...opts },
-    log() {},
-    api: {
-      get: (path, query) => answer('GET', path, undefined, query),
-      post: (path, body) => answer('POST', path, body),
-      request: (method, path, o = {}) => answer(method, path, o.body),
-    },
-  };
-}
-
 test('jsonOpt refuses bad JSON and non-objects', () => {
   assert.deepEqual(jsonOpt('{"a":1}', 'args'), { a: 1 });
   assert.equal(jsonOpt(undefined, 'args'), undefined);
   assert.throws(() => jsonOpt('{a:1}', 'args'), (e) => e.exitCode === EXIT.USAGE && /not valid JSON/.test(e.message));
   assert.throws(() => jsonOpt('[1]', 'args'), (e) => e.exitCode === EXIT.USAGE);
   assert.throws(() => jsonOpt('null', 'args'), (e) => e.exitCode === EXIT.USAGE);
+});
+
+test('jsonArray takes a non-empty array of objects and refuses the rest with the same parse error as jsonOpt', () => {
+  assert.deepEqual(jsonArray('[{"a":1}]', 'changes'), [{ a: 1 }]);
+  assert.equal(jsonArray(undefined, 'changes'), undefined);
+  assert.throws(() => jsonArray('{a:1}', 'changes'), (e) => e.exitCode === EXIT.USAGE && /^--changes is not valid JSON/.test(e.message));
+  for (const v of ['[]', '[1]', '[null]', '[[]]', '{"a":1}']) assert.throws(() => jsonArray(v, 'changes'), (e) => e.exitCode === EXIT.USAGE && /JSON array of objects/.test(e.message));
+});
+
+test('requireArg exits 2 naming the argument, with a fix only when there is a list to look in', () => {
+  assert.equal(requireArg({ args: ['a1'] }, 'agent id', 'agents list'), 'a1');
+  assert.throws(() => requireArg({ args: [] }, 'agent id', 'agents list'), (e) => e.exitCode === EXIT.USAGE && e.message === 'Pass the agent id.' && e.fix === 'See `cleanlist agents list`.');
+  assert.throws(() => requireArg({ args: [''] }, 'run_id'), (e) => e.exitCode === EXIT.USAGE && e.fix === undefined);
 });
 
 // actions
@@ -77,7 +65,7 @@ test('actions run: --yes confirms that card once with its session', async () => 
 
 test('actions run: a card above --max-credits exits 5 even with --yes', async () => {
   const ctx = fakeCtx(['agents.set_status'], { yes: true, 'max-credits': '100' }, actionRoutes);
-  await assert.rejects(cmd(actionCommands, 'actions run').run(ctx), (e) => e.exitCode === EXIT.CREDITS);
+  await assert.rejects(cmd(actionCommands, 'actions run').run(ctx), (e) => e.exitCode === EXIT.CREDITS && /120 credits/.test(e.message) && e.fix === 'Raise --max-credits, or narrow the job.');
   assert.equal(ctx.calls.length, 1);
 });
 
@@ -296,36 +284,20 @@ test('inbox done archives the thread; updates passes --since', async () => {
 
 // end to end through the binary: exit 7 puts the card on stdout
 test('cli: actions run with a card exits 7 and prints the card on stdout', async () => {
-  const server = createServer((req, res) => {
-    res.setHeader('content-type', 'application/json');
-    if (req.method === 'POST' && req.url === '/api/v2/actions/agents.set_status') return res.end(JSON.stringify(card));
-    res.statusCode = 500;
-    res.end('{}');
+  const { code, stdout } = await runCli(['actions', 'run', 'agents.set_status', '--args', '{}', '--json'], {
+    handler: (req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.method === 'POST' && req.url === '/api/v2/actions/agents.set_status') return res.end(JSON.stringify(card));
+      res.statusCode = 500;
+      res.end('{}');
+    },
   });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${server.address().port}`;
-  try {
-    const child = spawn(process.execPath, ['dist/cli.js', 'actions', 'run', 'agents.set_status', '--args', '{}', '--api-url', url, '--json'], {
-      env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' },
-    });
-    let stdout = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    const code = await new Promise((r) => child.on('close', r));
-    assert.equal(code, EXIT.CONFIRM);
-    assert.equal(JSON.parse(stdout).card.card_id, 'crd_1');
-  } finally {
-    server.close();
-  }
+  assert.equal(code, EXIT.CONFIRM);
+  assert.equal(JSON.parse(stdout).card.card_id, 'crd_1');
 });
 
 test('cli: the old AI-column flags on agents point at smart-agents; other bad agents flags do not', async () => {
-  const run = (args) =>
-    new Promise((resolve) => {
-      const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
-      let stderr = '';
-      child.stderr.on('data', (d) => (stderr += d));
-      child.on('close', (code) => resolve({ code, stderr }));
-    });
+  const run = (args) => runCli(args);
   const old = await run(['agents', 'run', 'Q4', '--column', 'Hook', '--prompt', 'x']);
   assert.equal(old.code, EXIT.USAGE);
   assert.match(old.stderr, /smart-agents/);
@@ -336,26 +308,16 @@ test('cli: the old AI-column flags on agents point at smart-agents; other bad ag
 
 test('cli: agents run and plays run with a 0-credit quote and no --yes exit 7 and start nothing', async () => {
   const runs = [];
-  const server = createServer((req, res) => {
+  const handler = (req, res) => {
     res.setHeader('content-type', 'application/json');
     if (req.method === 'POST' && req.url === '/api/v2/credits/estimate') return res.end(JSON.stringify({ ...quote, estimated_cost: 0 }));
     runs.push(req.url);
     res.end(JSON.stringify({ run_id: null }));
-  });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${server.address().port}`;
-  const run = (args) =>
-    new Promise((resolve) => {
-      const child = spawn(process.execPath, ['dist/cli.js', ...args, '--api-url', url], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
-      child.on('close', resolve);
-    });
-  try {
-    assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--format', 'table']), EXIT.CONFIRM);
-    assert.equal(await run(['plays', 'run', 'pb_1']), EXIT.CONFIRM);
-    assert.deepEqual(runs, []);
-    assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--yes']), 0);
-    assert.equal(runs.length, 1);
-  } finally {
-    server.close();
-  }
+  };
+  const run = async (args) => (await runCli(args, { handler })).code;
+  assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--format', 'table']), EXIT.CONFIRM);
+  assert.equal(await run(['plays', 'run', 'pb_1']), EXIT.CONFIRM);
+  assert.deepEqual(runs, []);
+  assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--yes']), 0);
+  assert.equal(runs.length, 1);
 });

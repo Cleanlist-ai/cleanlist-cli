@@ -1,39 +1,14 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { dataCommands } from '../dist/commands/data.js';
 import { toError } from '../dist/api.js';
 import { EXIT } from '../dist/errors.js';
+import { fakeCtx, quote, runCli } from './helpers.mjs';
 
 const cmd = (name) => dataCommands.find((c) => c.name === name);
-const quote = { quote_id: 'qte_1', estimated_cost: 40, available_credits: 1000, row_count: 1, sufficient: true, expires_at: 0, tool: 'x' };
-
-/** A ctx whose API records every call and answers from `routes` ("METHOD path" → body or function). */
-function fakeCtx(args, opts, routes) {
-  const calls = [];
-  const answer = async (method, path, body, query) => {
-    calls.push({ method, path, body, query });
-    const r = routes[`${method} ${path}`];
-    if (r === undefined) throw new Error(`unexpected ${method} ${path}`);
-    return { status: 200, data: typeof r === 'function' ? r(body ?? query) : r };
-  };
-  return {
-    calls,
-    args,
-    opts: { 'no-input': true, ...opts },
-    log() {},
-    api: {
-      get: (path, query) => answer('GET', path, undefined, query),
-      post: (path, body) => answer('POST', path, body),
-      request: (method, path, o = {}) => answer(method, path, o.body, o.query),
-    },
-  };
-}
-
 /** A route that prices the request: 400 quote_required with `estimate` until a quote_id comes, then `ok`. */
 const priced = (estimate, ok) => (body) => {
   if (!body.quote_id) throw toError(400, { error: { code: 'quote_required', problem: 'needs a quote', details: { estimate, credits: 1 } } });
@@ -232,34 +207,18 @@ test('companies committee and org are free and need a company; the committee tab
 });
 
 // end to end through the binary: --format csv and stdin
-async function runCli(args, input, handler) {
-  const server = createServer(handler);
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${server.address().port}`;
-  try {
-    const child = spawn(process.execPath, ['dist/cli.js', ...args, '--api-url', url], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
-    child.stdin.end(input ?? '');
-    let stdout = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    const code = await new Promise((r) => child.on('close', r));
-    return { code, stdout };
-  } finally {
-    server.close();
-  }
-}
-
 test('cli: meetings list --format csv prints the rows as CSV', async () => {
-  const { code, stdout } = await runCli(['meetings', 'list', '--format', 'csv'], '', (req, res) => {
+  const { code, stdout } = await runCli(['meetings', 'list', '--format', 'csv'], { handler: (req, res) => {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ meetings: [{ meeting_id: 'm1', title: 'Acme, intro' }] }));
-  });
+  } });
   assert.equal(code, 0);
   assert.equal(stdout, 'meeting_id,title\nm1,"Acme, intro"\n');
 });
 
 test('cli: job-changes check --file - reads stdin and exits 7 with the quote when nobody approved', async () => {
   const bodies = [];
-  const { code, stdout } = await runCli(['job-changes', 'check', '--file', '-', '--json'], 'https://linkedin.com/in/a\nhttps://linkedin.com/in/b\n', (req, res) => {
+  const { code, stdout } = await runCli(['job-changes', 'check', '--file', '-', '--json'], { input: 'https://linkedin.com/in/a\nhttps://linkedin.com/in/b\n', handler: (req, res) => {
     let b = '';
     req.on('data', (d) => (b += d));
     req.on('end', () => {
@@ -269,7 +228,7 @@ test('cli: job-changes check --file - reads stdin and exits 7 with the quote whe
       res.statusCode = 400;
       res.end(JSON.stringify({ error: { code: 'quote_required', problem: 'needs a quote', details: { estimate: { tool: 'job_change_check', row_count: 2, filters: { n: 2 } } } } }));
     });
-  });
+  } });
   assert.equal(code, EXIT.CONFIRM);
   const urls = ['https://linkedin.com/in/a', 'https://linkedin.com/in/b'];
   assert.deepEqual(bodies, [['/api/v2/job-changes/check', { linkedin_urls: urls }], ['/api/v2/credits/estimate', { tool: 'job_change_check', row_count: 2, filters: { n: 2 } }]]);

@@ -1,26 +1,15 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { completionCommand } from '../dist/commands/completion.js';
 import { EXIT } from '../dist/errors.js';
+import { runCli as run } from './helpers.mjs';
 
 const commands = [];
 for (const f of readdirSync('dist/commands').filter((f) => f.endsWith('.js'))) {
   for (const v of Object.values(await import(`../dist/commands/${f}`))) if (Array.isArray(v)) commands.push(...v.filter((c) => c?.name && c.run));
 }
 commands.push(completionCommand(() => commands, {}));
-
-function run(args) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...process.env, CLEANLIST_API_KEY: 'test', CI: '1' } });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-  });
-}
 
 test('help: every command has a one-line summary and an example that uses only its own and global flags', async () => {
   const global = [...(await run(['whoami', '--help'])).stdout.split('Global flags:')[1].matchAll(/--([a-z-]+)/g)].map((m) => m[1]);

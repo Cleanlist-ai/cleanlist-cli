@@ -13,9 +13,10 @@ import { eventCommands, signature, sinceOpt } from '../dist/commands/events.js';
 import { codexBlock, desktopConfigPath, lineDiff, MCP_URL, mergeCodexConfig, mergeJsonConfig } from '../dist/commands/mcp.js';
 import { decodeFrames, encodeFrame } from '../dist/ws.js';
 import { EXIT } from '../dist/errors.js';
+import { quote as baseQuote, runCli } from './helpers.mjs';
 
 const cmd = (list, name) => list.find((c) => c.name === name);
-const quote = { quote_id: 'qte_1', estimated_cost: 40, available_credits: 1000, row_count: 2, sufficient: true, expires_at: 0, tool: 'x' };
+const quote = { ...baseQuote, row_count: 2 };
 
 /** Close a test server and every socket on it (keep-alive and upgraded ones too). */
 function hardClose(server) {
@@ -36,17 +37,7 @@ async function serve(handler) {
   return { server, url: `http://127.0.0.1:${server.address().port}` };
 }
 
-function run(args, env = {}, input) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['dist/cli.js', ...args], { env: { ...process.env, CI: '1', CLEANLIST_API_KEY: '', CLEANLIST_MODE: '', ...env } });
-    if (input !== undefined) child.stdin.end(input);
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
-  });
-}
+const run = (args, env = {}, input) => runCli(args, { env: { CLEANLIST_API_KEY: '', ...env }, input });
 
 const json = (res, status, body, headers = {}) => {
   res.writeHead(status, { 'content-type': 'application/json', ...headers });
@@ -486,11 +477,8 @@ test('cli: batch reads stdin with -', async () => {
     req.on('end', () => json(res, 200, req.url === '/api/v2/credits/estimate' ? { ...quote, row_count: JSON.parse(body).row_count } : {}));
   });
   try {
-    const child = spawn(process.execPath, ['dist/cli.js', 'batch', 'companies', '-', '--dry-run', '--api-url', url, '--json'], { env: { ...process.env, CLEANLIST_API_KEY: 'k', CI: '1' } });
-    child.stdin.end('domain\na.io\nb.io\nc.io\n');
-    let stdout = '';
-    child.stdout.on('data', (d) => (stdout += d));
-    assert.equal(await new Promise((r) => child.on('close', r)), 0);
+    const { code, stdout } = await runCli(['batch', 'companies', '-', '--dry-run', '--api-url', url, '--json'], { env: { CLEANLIST_API_KEY: 'k' }, input: 'domain\na.io\nb.io\nc.io\n' });
+    assert.equal(code, 0);
     assert.equal(JSON.parse(stdout).row_count, 3);
   } finally {
     hardClose(server);
