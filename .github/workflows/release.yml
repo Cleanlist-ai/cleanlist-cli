@@ -109,10 +109,13 @@ jobs:
         with:
           ref: v${{ needs.release.outputs.version }}
 
+      # No registry-url: it writes an .npmrc with a placeholder token
+      # (XXXXX-XXXXX-XXXXX-XXXXX) that npm falls back to when the OIDC
+      # exchange fails, which turns a missing Trusted Publisher into a
+      # misleading `E404 ... PUT`. Without it, that case fails with ENEEDAUTH.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
 
       # Trusted Publishing needs npm >= 11.5.1.
       - run: npm install -g npm@11
