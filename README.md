@@ -1,7 +1,7 @@
 # Cleanlist CLI
 
 Find B2B people, enrich CSVs and lead lists with verified work emails and phones,
-run AI columns, and export, from your terminal. Built for developers working in
+run AI columns, manage GTM agents, and export, from your terminal. Built for developers working in
 Claude Code, Cursor and Codex: output is JSON when piped, nothing prompts without
 a terminal, and every paid action shows a quote first.
 
@@ -45,7 +45,20 @@ cleanlist lists export "Q4 ABM" -o q4.csv
 cleanlist lists rows "Q4 ABM" --all --format jsonl
 
 # Fill an AI column on the first 10 rows
-cleanlist agents run "Q4 ABM" --column Hook --prompt "One-line opener about {{company}}" --rows 10 --yes --wait
+cleanlist smart-agents run "Q4 ABM" --column Hook --prompt "One-line opener about {{company}}" --rows 10 --yes --wait
+
+# GTM agents: list them, read a run's records, turn one off
+cleanlist agents list
+cleanlist agents runs <agent_id>
+cleanlist plays results <run_id> --wait
+cleanlist agents off <agent_id>
+
+# Anything Clu can do: list the actions, run one
+cleanlist actions list
+cleanlist actions run agents.get --args '{"agent_id":"..."}' --json
+
+# Get events at your own URL (the signing secret is shown once)
+cleanlist webhooks add https://example.com/hooks/cleanlist --events play_run.completed,reply.received
 
 # Credits and usage
 cleanlist credits
@@ -55,9 +68,25 @@ cleanlist usage --group-by tool
 Run `cleanlist --help` for every command and `cleanlist <command> --help` for flags
 and examples. Lists can be named by id or exact name.
 
+| Group | Commands |
+|---|---|
+| Account | `login`, `logout`, `whoami`, `profiles`, `credits`, `credits estimate`, `usage` |
+| People | `people search`, `people filters`, `people compile` |
+| Enrich | `enrich person`, `enrich company`, `enrich list`, `enrich task`, `enrich csv`, `enrich status` |
+| Lists | `lists`, `lists get`, `lists create`, `lists rename`, `lists delete`, `lists rows`, `lists add`, `lists remove`, `lists import`, `lists export` |
+| Smart agents (AI columns) | `smart-agents run`, `smart-agents list`, `smart-agents results` |
+| GTM agents | `agents list`, `agents get`, `agents create`, `agents update`, `agents off`, `agents runs`, `plays results` |
+| Actions (Clu tools) | `actions list`, `actions run`, `actions confirm` |
+| Webhooks | `webhooks list`, `webhooks add`, `webhooks remove` |
+| Agent setup | `skill`, `mcp install` |
+
+Turning an agent on, running it now and changing its limits are a person's to
+do in the Cleanlist app. The API refuses them from code (exit 3,
+`person_required`), so the CLI has no command for them.
+
 ## Paying for things
 
-Commands that spend credits (`enrich *`, `agents run`) first ask the API for a
+Commands that spend credits (`enrich *`, `smart-agents run`) first ask the API for a
 signed quote and show it:
 
 - in a terminal, you're asked `Spend 1,240 credits? [y/N]`;
@@ -68,6 +97,14 @@ signed quote and show it:
   (exit 5).
 
 Credits are charged exactly as through the API.
+
+`actions run` works the same way with a card instead of a quote: an action that
+spends, sends, deletes or writes to a CRM returns a card and runs nothing. `--yes`
+(or a yes at the prompt) confirms it; otherwise it exits 7 with the card, and
+`cleanlist actions confirm <card_id> --session <session_id>` runs it after the user
+approves. Deletes, sends and CRM writes also need the key's opt-in scope
+(`lists:delete`, `sequences:write`, `crm:write`), ticked per key in Settings → API
+keys; without it they exit 3 with `opt_in_scope_required` and the scope's name.
 
 ## Output and exit codes
 
@@ -80,14 +117,18 @@ when piped, with a `fix` hint.
 | 0 | OK |
 | 1 | Unexpected or server error |
 | 2 | Bad input (flags, validation, ambiguous list name) |
-| 3 | Not signed in, revoked, or the plan has no API access |
+| 3 | Not signed in, revoked, the plan has no API access, or a person must do it (`person_required`, `opt_in_scope_required`) |
 | 4 | Not found |
 | 5 | Not enough credits, or the quote is above `--max-credits` |
-| 6 | Rate limited (after retries) |
+| 6 | Rate limited |
 | 7 | Confirmation required: re-run with `--yes` once the cost is approved |
 | 8 | `--wait` timed out; the job is still running (the error shows how to resume) |
 
-`--wait` polls with backoff and honors `Retry-After`; `--timeout 10m` caps it.
+`--wait` polls with backoff; `--timeout 10m` caps it.
+
+Retries: only a GET is retried, up to 3 tries, on 502, 503 or 504 (or no response),
+honoring `Retry-After`. A POST, PATCH or DELETE is sent once and never resent, so a
+write can't run twice; when one gets no response, check before running it again.
 
 ## Coding agents
 
@@ -103,6 +144,17 @@ conversation, and branch on exit codes.
 
 The CLI and the [Cleanlist MCP server](https://docs.cleanlist.ai/mcp) work well
 together: use the MCP to explore in chat, and the CLI to move data in bulk.
+
+```bash
+cleanlist mcp install claude-code             # hosted server, sign in from the app
+cleanlist mcp install cursor --api-key -      # local server with a key (hidden prompt)
+cleanlist mcp install claude-desktop
+cleanlist mcp install codex
+```
+
+`mcp install` shows the change to the app's config file and writes it once you
+confirm (`--yes` without a terminal). Running it again updates the existing
+Cleanlist entry in place and leaves every other server and setting as it was.
 
 ## Environment
 

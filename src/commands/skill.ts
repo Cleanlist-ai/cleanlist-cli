@@ -18,7 +18,9 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
   then save: \`cleanlist lists add "<list>" --from-task <task_id>\`
 - Export a list: \`cleanlist lists export "<list>" -o out.csv\`
 - Read a list: \`cleanlist lists rows "<list>" --all --format jsonl\`
-- AI column: \`cleanlist agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
+- AI column: \`cleanlist smart-agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
+- GTM agents: \`cleanlist agents list\`, \`cleanlist agents runs <agent_id>\`, \`cleanlist plays results <run_id>\`
+- Any Clu action: \`cleanlist actions list --json\`, then \`cleanlist actions run <name> --args '{...}'\`
 - Credits: \`cleanlist credits --json\`
 
 ## Rules
@@ -34,6 +36,12 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 - Exit codes: 0 ok, 2 bad input, 3 auth/plan, 4 not found, 5 credits,
   6 rate limited, 7 needs --yes, 8 still running (the error prints a resume command).
 - People search has a daily cap per API key: don't loop \`--all\`.
+- An action that spends, sends, deletes or writes to a CRM returns a card and
+  exits 7: show the user the card, and confirm it only after they say yes.
+- Exit 3 with \`person_required\` (turning an agent on, running it now, its
+  limits): only the person can do that, in the Cleanlist app. Don't work around it.
+  With \`opt_in_scope_required\`, the key needs the named scope ticked in
+  Settings → API keys.
 - Lists can be named by id or exact name.
 - \`cleanlist <command> --help\` lists every flag.
 `;

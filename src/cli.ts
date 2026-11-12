@@ -7,13 +7,30 @@ import { CliError, EXIT } from './errors.js';
 import { type Format, print } from './output.js';
 import { VERSION } from './version.js';
 import { accountCommands } from './commands/account.js';
+import { actionCommands } from './commands/actions.js';
 import { agentCommands } from './commands/agents.js';
 import { enrichCommands } from './commands/enrich.js';
 import { listCommands } from './commands/lists.js';
+import { mcpCommands } from './commands/mcp.js';
 import { peopleCommands } from './commands/people.js';
+import { playCommands } from './commands/plays.js';
 import { skillCommands } from './commands/skill.js';
+import { smartAgentCommands } from './commands/smart-agents.js';
+import { webhookCommands } from './commands/webhooks.js';
 
-const COMMANDS: Command[] = [...accountCommands, ...peopleCommands, ...enrichCommands, ...listCommands, ...agentCommands, ...skillCommands];
+const COMMANDS: Command[] = [
+  ...accountCommands,
+  ...peopleCommands,
+  ...enrichCommands,
+  ...listCommands,
+  ...smartAgentCommands,
+  ...agentCommands,
+  ...playCommands,
+  ...actionCommands,
+  ...webhookCommands,
+  ...skillCommands,
+  ...mcpCommands,
+];
 
 const GLOBAL: Record<string, OptSpec> = {
   json: { type: 'boolean', desc: 'Same as --format json.' },
@@ -35,9 +52,22 @@ const GROUPS: [string, string][] = [
   ['People', 'people'],
   ['Enrich', 'enrich'],
   ['Lists', 'lists'],
-  ['Smart agents', 'agents'],
-  ['Agent setup', 'skill'],
+  ['Smart agents (AI columns)', 'smart-agents'],
+  ['GTM agents', 'agents plays'],
+  ['Actions (Clu tools)', 'actions'],
+  ['Webhooks', 'webhooks'],
+  ['Agent setup', 'skill mcp'],
 ];
+
+/** 0.2.0 gave `agents` to GTM agents; the AI-column commands kept their flags under `smart-agents`. */
+const MOVED = 'AI columns moved to `cleanlist smart-agents run|list|results` in 0.2.0; `agents` is now GTM agents.';
+const PERSON_ONLY = 'Turning an agent on and running it now are done by a person in the Cleanlist app, not from the CLI.';
+/** `agents <sub>` that no longer exist, or never will from code: say where they went. */
+const AGENT_REDIRECTS: Record<string, [string, string]> = {
+  run: ['There is no `agents run` in 0.2.0.', `For an AI column: \`cleanlist smart-agents run\`. ${PERSON_ONLY}`],
+  results: ['`agents results` moved.', MOVED],
+  on: ['`agents on` is not available from the CLI.', PERSON_ONLY],
+};
 
 function toParseOptions(specs: Record<string, OptSpec>): any {
   return Object.fromEntries(
@@ -93,7 +123,7 @@ function mainHelp(): string {
     const cmds = COMMANDS.filter((c) => names.split(' ').some((n) => c.name === n || c.name.startsWith(n + ' ')));
     return `${title}:\n${cmds.map((c) => `  ${c.name.padEnd(22)} ${c.summary}`).join('\n')}`;
   });
-  return `Cleanlist CLI ${VERSION}: find people, enrich CSVs and lists, run smart agents, export.
+  return `Cleanlist CLI ${VERSION}: find people, enrich CSVs and lists, run smart agents, manage GTM agents, export.
 
 Usage: cleanlist <command> [flags]
 
@@ -138,6 +168,8 @@ async function main(argv: string[]): Promise<void> {
       const prefix = loose.positionals[1];
       return void process.stdout.write(target ? commandHelp(target) : prefix ? groupHelp(prefix) : mainHelp());
     }
+    const redirect = first === 'agents' && !g.help ? AGENT_REDIRECTS[loose.positionals[1]] : undefined;
+    if (redirect) throw new CliError(EXIT.USAGE, ...redirect);
     if (first && COMMANDS.some((c) => c.name.startsWith(first + ' '))) {
       process.stdout.write(groupHelp(first));
       if (!g.help) process.exit(EXIT.USAGE);
@@ -158,7 +190,9 @@ async function main(argv: string[]): Promise<void> {
       allowPositionals: true,
     }).values;
   } catch (e) {
-    throw new CliError(EXIT.USAGE, (e as Error).message.replace(/\. To specify.*$/s, '.'), `Run \`cleanlist ${cmd.name} --help\`.`);
+    // 0.1.0's `agents list --list X --limit N` was the AI-column list.
+    const old = cmd.name.startsWith('agents ') && argv.some((a) => /^--(column|prompt|template|rows|all|overwrite|type|list|limit|wait)(=|$)/.test(a));
+    throw new CliError(EXIT.USAGE, (e as Error).message.replace(/\. To specify.*$/s, '.'), old ? MOVED : `Run \`cleanlist ${cmd.name} --help\`.`);
   }
   format = values.json ? 'json' : (values.format ?? format);
   if (!['table', 'json', 'jsonl', 'csv'].includes(format)) throw new CliError(EXIT.USAGE, `--format must be table, json, jsonl or csv.`);

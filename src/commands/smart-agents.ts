@@ -9,16 +9,16 @@ function waitForAgent(ctx: Ctx, id: string) {
     ctx,
     async () => (await ctx.api.get(`/api/v2/smart-agents/${enc(id)}`)).data,
     (d: any) => isTerminal(d.status),
-    `cleanlist agents results ${id} --wait`,
+    `cleanlist smart-agents results ${id} --wait`,
     (d: any) => `Agent ${d.status}: ${d.progress ?? 0}/${d.total ?? '?'}.`,
   );
 }
 
 const RESULT_VIEW = { rows: (d: any) => d.results, columns: ['lead_id', 'value', 'error'] };
 
-export const agentCommands: Command[] = [
+export const smartAgentCommands: Command[] = [
   {
-    name: 'agents run',
+    name: 'smart-agents run',
     args: '<list>',
     summary: 'Run a smart agent (AI column) over a list. Paid: shows a quote first.',
     paid: true,
@@ -35,8 +35,8 @@ export const agentCommands: Command[] = [
     },
     view: RESULT_VIEW,
     examples: [
-      'cleanlist agents run "Q4 ABM" --column "Hook" --prompt "One-line opener about {{company}}" --rows 10 --dry-run',
-      'cleanlist agents run "Q4 ABM" --type company_intel --column Intel --all --yes --wait',
+      'cleanlist smart-agents run "Q4 ABM" --column "Hook" --prompt "One-line opener about {{company}}" --rows 10 --dry-run',
+      'cleanlist smart-agents run "Q4 ABM" --type company_intel --column Intel --all --yes --wait',
     ],
     async run(ctx) {
       const type = ctx.opts.type ?? 'custom_ai';
@@ -61,8 +61,9 @@ export const agentCommands: Command[] = [
     },
   },
   {
-    name: 'agents list',
+    name: 'smart-agents list',
     summary: 'Recent smart-agent runs.',
+    examples: ['cleanlist smart-agents list --list "Q4 ABM" --limit 5'],
     options: { list: { type: 'string', desc: 'Only runs on this list.' }, limit: { type: 'string', desc: 'How many (default 20).' } },
     view: { rows: (d) => d.runs, columns: ['task_id', 'column_name', 'agent_type', 'status', 'processed', 'total', 'created_at'] },
     async run(ctx) {
@@ -71,9 +72,10 @@ export const agentCommands: Command[] = [
     },
   },
   {
-    name: 'agents results',
+    name: 'smart-agents results',
     args: '<smart_agent_task_id>',
     summary: 'Status and output of a smart-agent run.',
+    examples: ['cleanlist smart-agents results <smart_agent_task_id> --wait'],
     options: { wait: { type: 'boolean', desc: 'Block until it finishes.' }, timeout: { type: 'string', desc: 'Default 30m.' } },
     view: RESULT_VIEW,
     async run(ctx) {
