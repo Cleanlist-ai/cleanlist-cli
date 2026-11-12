@@ -72,6 +72,38 @@ function isCleanlistTable(raw: string): boolean {
   return parts[0] === 'mcp_servers' && parts[1] === 'cleanlist';
 }
 
+type Multiline = '"""' | "'''" | undefined;
+
+/**
+ * The multiline string still open after `line`, given the one open before it.
+ * Comments, single-line strings and escapes are skipped, so a delimiter inside
+ * any of them doesn't count.
+ */
+export function multilineOpenAfter(line: string, open: Multiline): Multiline {
+  let i = 0;
+  while (i < line.length) {
+    if (open) {
+      if (open === '"""' && line[i] === '\\') i += 2;
+      else if (line.startsWith(open, i)) (open = undefined), (i += 3);
+      else i++;
+      continue;
+    }
+    const c = line[i];
+    if (c === '#') break;
+    if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
+      open = line.slice(i, i + 3) as Multiline;
+      i += 3;
+    } else if (c === '"') {
+      for (i++; i < line.length && line[i] !== '"'; i += line[i] === '\\' ? 2 : 1);
+      i++;
+    } else if (c === "'") {
+      const end = line.indexOf("'", i + 1);
+      i = end < 0 ? line.length : end + 1;
+    } else i++;
+  }
+  return open;
+}
+
 /**
  * Replace the `[mcp_servers.cleanlist]` table (and its sub-tables) in a Codex
  * config.toml where it stands, keeping everything else; append it when there is none.
@@ -83,12 +115,11 @@ export function mergeCodexConfig(existing: string | undefined, block: string): s
   let at = -1;
   // The delimiter of a multiline string open at the start of the line: a
   // header-shaped line inside one is string content, not a table.
-  let open: '"""' | "'''" | undefined;
+  let open: Multiline;
   for (const line of lines) {
     const header = open ? null : /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
     if (header) skipping = isCleanlistTable(header[1]);
-    const delim = open ?? (/"""|'''/.exec(line)?.[0] as typeof open);
-    if (delim && line.split(delim).length % 2 === 0) open = open ? undefined : delim;
+    open = multilineOpenAfter(line, open);
     if (skipping && at < 0) at = out.length;
     if (!skipping) out.push(line);
   }

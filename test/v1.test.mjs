@@ -310,3 +310,10 @@ test('mergeCodexConfig leaves header-shaped text inside multiline strings alone'
   assert.ok(after.includes("lit = '''\n[mcp_servers.cleanlist]\n'''"), after);
   assert.ok(after.endsWith('[mcp_servers.cleanlist]\nurl = "new"\n') && !after.includes('url = "old"'), after);
 });
+
+test('mergeCodexConfig ignores multiline delimiters in comments and single-line strings', () => {
+  const before = '[mcp_servers.cleanlist]\nurl = "old"\n# Example delimiter: \'\'\'\nquote = "has \\"\\"\\" inside"\nlit = \'has """ inside\'\n[profiles.work]\nmodel = "keep"\n';
+  const after = mergeCodexConfig(before, '[mcp_servers.cleanlist]\nurl = "new"\n');
+  assert.ok(after.includes('[profiles.work]\nmodel = "keep"'), after);
+  assert.ok(after.startsWith('[mcp_servers.cleanlist]\nurl = "new"\n') && !after.includes('url = "old"'), after);
+});
