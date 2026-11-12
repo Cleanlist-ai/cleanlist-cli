@@ -12,7 +12,7 @@ npx @cleanlist-ai/cli enrich csv leads.csv --dry-run
 
 Or install it: `npm i -g @cleanlist-ai/cli`, then use `cleanlist`.
 
-Needs Node 18.18+ and a Cleanlist plan with API access.
+Needs Node 22.23.4+, 24.22.1+ or 26.12.1+ (the releases with the fix for CVE-2026-111497) and a Cleanlist plan with API access.
 
 ## Sign in
 
