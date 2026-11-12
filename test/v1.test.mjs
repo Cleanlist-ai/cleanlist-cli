@@ -9,6 +9,7 @@ import { Api, toError } from '../dist/api.js';
 import { actionCommands } from '../dist/commands/actions.js';
 import { agentCommands } from '../dist/commands/agents.js';
 import { mergeCodexConfig } from '../dist/commands/mcp.js';
+import { skillCommands, SKILL_BODY } from '../dist/commands/skill.js';
 import { EXIT } from '../dist/errors.js';
 
 const cmd = (list, name) => list.find((c) => c.name === name);
@@ -176,6 +177,11 @@ test('mergeCodexConfig finds the cleanlist table however its header is quoted or
     const out = mergeCodexConfig(`${header}\nurl = "old"\n`, '[mcp_servers.cleanlist]\nurl = "new"\n');
     assert.equal(out, '[mcp_servers.cleanlist]\nurl = "new"\n', header);
   }
+  // A header the decoder can't read (or a \\U escape) is someone else's table, kept as it is.
+  for (const kept of ['[profiles."\\U00000077ork"]\nx = 1\n', '[profiles."\\q"]\nx = 1\n']) {
+    assert.ok(mergeCodexConfig(kept, '[mcp_servers.cleanlist]\nurl = "new"\n').startsWith(kept), kept);
+  }
+  assert.equal(mergeCodexConfig('[mcp_servers."\\u0063leanlist"]\nurl = "old"\n', '[mcp_servers.cleanlist]\nurl = "new"\n'), '[mcp_servers.cleanlist]\nurl = "new"\n');
   // A single quoted key with a dot in it is another table.
   const other = '["mcp_servers.cleanlist"]\nx = 1\n';
   assert.ok(mergeCodexConfig(other, '[mcp_servers.cleanlist]\nurl = "new"\n').startsWith(other));
@@ -219,6 +225,29 @@ test('actions confirm refuses --dry-run and sends nothing', async () => {
   const ctx = fakeCtx(['crd_1'], { session: 'sess_1', 'dry-run': true }, routes);
   await assert.rejects(cmd(actionCommands, 'actions confirm').run(ctx), (e) => e.exitCode === EXIT.USAGE);
   assert.deepEqual(ctx.calls, []);
+});
+
+test('actions confirm refuses --max-credits and sends nothing: the cap is checked at actions run', async () => {
+  const ctx = fakeCtx(['crd_1'], { session: 'sess_1', 'max-credits': '10' }, routes);
+  await assert.rejects(cmd(actionCommands, 'actions confirm').run(ctx), (e) => e.exitCode === EXIT.USAGE && /actions run/.test(e.message));
+  assert.deepEqual(ctx.calls, []);
+});
+
+test('skill --target agents replaces an older Cleanlist section in AGENTS.md and keeps the rest', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-skill-'));
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try {
+    writeFileSync('AGENTS.md', '# Mine\n\n<!-- cleanlist-cli -->\nold: cleanlist agents run\n<!-- /cleanlist-cli -->\n\n## After\n');
+    const run = () => cmd(skillCommands, 'skill').run({ opts: { target: 'agents' }, log() {} });
+    assert.equal((await run()).written, true);
+    const after = readFileSync('AGENTS.md', 'utf8');
+    assert.ok(after.startsWith('# Mine\n') && after.endsWith('## After\n'), after);
+    assert.ok(after.includes(SKILL_BODY) && !after.includes('old: cleanlist agents run'));
+    assert.equal((await run()).written, false, 'a second run changes nothing');
+  } finally {
+    process.chdir(cwd);
+  }
 });
 
 test('actions run: a person-only card refused at confirm surfaces person_required', async () => {

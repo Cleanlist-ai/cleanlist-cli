@@ -49,10 +49,25 @@ export function mergeJsonConfig(existing: string | undefined, entry: Record<stri
 
 const tomlString = (s: string) => JSON.stringify(s); // a TOML basic string has JSON's escapes
 
+const TOML_ESCAPES: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', e: '\x1b', '"': '"', '\\': '\\' };
+
+/** A quoted TOML key's value, or undefined when it isn't valid (then it's not ours). */
+function tomlBasicString(quoted: string): string | undefined {
+  try {
+    return quoted.slice(1, -1).replace(/\\(?:u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|(.))/g, (_m, u, U, c) => {
+      if (u || U) return String.fromCodePoint(parseInt(u ?? U, 16));
+      if (!(c in TOML_ESCAPES)) throw new Error('bad escape');
+      return TOML_ESCAPES[c];
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 /** True for `[mcp_servers.cleanlist]` and its sub-tables, however the header quotes or spaces its keys. */
 function isCleanlistTable(raw: string): boolean {
   const parts = (raw.match(/"(?:[^"\\]|\\.)*"|'[^']*'|[^."'\s]+/g) ?? []).map((p) =>
-    p.startsWith('"') ? JSON.parse(p) : p.startsWith("'") ? p.slice(1, -1) : p
+    p.startsWith('"') ? tomlBasicString(p) : p.startsWith("'") ? p.slice(1, -1) : p
   );
   return parts[0] === 'mcp_servers' && parts[1] === 'cleanlist';
 }

@@ -100,6 +100,8 @@ export const actionCommands: Command[] = [
       const cardId = requireArg(ctx, 'card_id');
       if (!ctx.opts.session) throw new CliError(EXIT.USAGE, 'Pass --session, the session_id the card came with.');
       if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here: confirm runs the card.', 'Run it without --dry-run to run the approved card.');
+      // The server doesn't show a card's cost at confirm; `actions run` does, and checks the cap there.
+      if (ctx.opts['max-credits'] !== undefined) throw new CliError(EXIT.USAGE, '--max-credits applies at `actions run`, which shows the card\'s cost. Nothing ran.', 'Run `actions run ... --max-credits N --yes` to check the cap and confirm in one step.');
       return confirmCard(ctx, cardId, ctx.opts.session);
     },
   },

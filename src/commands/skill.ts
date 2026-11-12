@@ -73,9 +73,18 @@ export const skillCommands: Command[] = [
       }
       const target = TARGETS[t];
       if (!target) throw new CliError(EXIT.USAGE, `--target must be one of ${Object.keys(TARGETS).join(', ')}.`);
-      if (target.append && existsSync(target.path) && readFileSync(target.path, 'utf8').includes('<!-- cleanlist-cli -->')) {
-        ctx.log(`${target.path} already has the Cleanlist section.`);
-        return { path: target.path, written: false };
+      const existing = target.append && existsSync(target.path) ? readFileSync(target.path, 'utf8') : undefined;
+      const section = /\n?<!-- cleanlist-cli -->\n[\s\S]*?<!-- \/cleanlist-cli -->\n?/;
+      if (existing !== undefined && section.test(existing)) {
+        // An older CLI's section names old commands: replace it where it stands.
+        const next = existing.replace(section, () => target.wrap(SKILL_BODY));
+        if (next === existing) {
+          ctx.log(`${target.path} already has the Cleanlist section.`);
+          return { path: target.path, written: false };
+        }
+        writeFileSync(target.path, next);
+        ctx.log(`Updated the Cleanlist section in ${target.path}.`);
+        return { path: target.path, written: true };
       }
       mkdirSync(dirname(target.path), { recursive: true });
       (target.append ? appendFileSync : writeFileSync)(target.path, target.wrap(SKILL_BODY));
