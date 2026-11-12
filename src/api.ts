@@ -10,7 +10,13 @@ export interface ApiResult<T = any> {
   data: T;
 }
 
-const RETRYABLE = new Set([429, 502, 503, 504]);
+/**
+ * Only a GET is ever retried, and only on a gateway error (or no response at
+ * all). A POST, PATCH or DELETE is sent once: there are no idempotency keys
+ * yet, so a resent write could run twice.
+ */
+const RETRYABLE = new Set([502, 503, 504]);
+const MAX_TRIES = 3;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Thin client for the public v2 API. Bodies go out and come back as the API defines them. */
@@ -61,6 +67,7 @@ export class Api {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
     }
 
+    const retries = method.toUpperCase() === 'GET';
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const token = await this.token(); // outside the try: a missing credential isn't a network error
@@ -77,11 +84,15 @@ export class Api {
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         });
       } catch (e) {
-        if (attempt < 2) {
+        if (retries && attempt + 1 < MAX_TRIES) {
           await sleep(1000 * 2 ** attempt);
           continue;
         }
-        throw new CliError(EXIT.ERROR, `Couldn't reach ${url.origin}: ${(e as Error).message}`);
+        throw new CliError(
+          EXIT.ERROR,
+          `Couldn't reach ${url.origin}: ${(e as Error).message}`,
+          retries ? undefined : 'It was not resent. The write may still have gone through: check before running it again.',
+        );
       }
 
       const text = await res.text();
@@ -93,13 +104,14 @@ export class Api {
       }
       if (res.ok) return { status: res.status, data };
 
-      // A stored OAuth token can be revoked or expire early: refresh once.
+      // A stored OAuth token can be revoked or expire early: refresh once. The
+      // server refused before doing anything, so this resend is safe for writes too.
       if (res.status === 401 && this.cred?.type === 'oauth' && !refreshed) {
         refreshed = true;
         await this.refresh();
         continue;
       }
-      if (RETRYABLE.has(res.status) && attempt < 3) {
+      if (retries && RETRYABLE.has(res.status) && attempt + 1 < MAX_TRIES) {
         const retryAfter = Number(res.headers.get('retry-after')) || data?.error?.retry_after_ms / 1000 || 2 ** attempt;
         await sleep(Math.min(retryAfter, 30) * 1000);
         continue;
@@ -108,6 +120,15 @@ export class Api {
     }
   }
 }
+
+/** Refusals the CLI can't work around: say who can do it, and where. */
+const REFUSAL_FIX: Record<string, (env: any) => string> = {
+  person_required: () => 'Only a person can do this, in the Cleanlist app (or through the MCP, where the app asks them). It cannot be done from the CLI.',
+  opt_in_scope_required: (env) => {
+    const scope = env?.details?.required_scope ?? env?.required_scope;
+    return `This API key needs the ${scope ? `"${scope}"` : 'matching'} scope. In the Cleanlist portal open Settings → API keys, edit this key and tick ${scope ? `"${scope}"` : 'that scope'}, then run it again.`;
+  },
+};
 
 /** Map an API error body (`{error: {code, problem, fix}}` or FastAPI `{detail}`) to a CliError. */
 export function toError(status: number, data: any): CliError {
@@ -124,6 +145,6 @@ export function toError(status: number, data: any): CliError {
     (Array.isArray(detail) ? detail.map((d: any) => `${(d.loc ?? []).slice(1).join('.')}: ${d.msg}`).join('; ') : '') ||
     `HTTP ${status}`;
   const body = typeof data === 'object' && data ? data : { error: { message: String(data) } };
-  const fix = env?.fix ?? (status === 401 ? 'Run `cleanlist login`, or check CLEANLIST_API_KEY.' : undefined);
+  const fix = REFUSAL_FIX[env?.code]?.(env) ?? env?.fix ?? (status === 401 ? 'Run `cleanlist login`, or check CLEANLIST_API_KEY.' : undefined);
   return new CliError(exitCodeForStatus(status, env?.code), message, fix, body);
 }
