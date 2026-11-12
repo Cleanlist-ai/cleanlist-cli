@@ -74,7 +74,7 @@ export const skillCommands: Command[] = [
       const target = TARGETS[t];
       if (!target) throw new CliError(EXIT.USAGE, `--target must be one of ${Object.keys(TARGETS).join(', ')}.`);
       const existing = target.append && existsSync(target.path) ? readFileSync(target.path, 'utf8') : undefined;
-      const section = /\n?<!-- cleanlist-cli -->\n[\s\S]*?<!-- \/cleanlist-cli -->\n?/;
+      const section = /(?:\r?\n)?<!-- cleanlist-cli -->\r?\n[\s\S]*?<!-- \/cleanlist-cli -->(?:\r?\n)?/;
       if (existing !== undefined && section.test(existing)) {
         // An older CLI's section names old commands: replace it where it stands.
         const next = existing.replace(section, () => target.wrap(SKILL_BODY));

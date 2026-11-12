@@ -245,6 +245,13 @@ test('skill --target agents replaces an older Cleanlist section in AGENTS.md and
     assert.ok(after.startsWith('# Mine\n') && after.endsWith('## After\n'), after);
     assert.ok(after.includes(SKILL_BODY) && !after.includes('old: cleanlist agents run'));
     assert.equal((await run()).written, false, 'a second run changes nothing');
+    // The same with CRLF line endings (an AGENTS.md saved on Windows).
+    writeFileSync('AGENTS.md', '# Mine\r\n\r\n<!-- cleanlist-cli -->\r\nold: cleanlist agents run\r\n<!-- /cleanlist-cli -->\r\n\r\n## After\r\n');
+    assert.equal((await run()).written, true);
+    const crlf = readFileSync('AGENTS.md', 'utf8');
+    assert.ok(!crlf.includes('old: cleanlist agents run') && crlf.split('<!-- cleanlist-cli -->').length === 2, crlf);
+    assert.ok(crlf.startsWith('# Mine\r\n') && crlf.endsWith('## After\r\n'), crlf);
+    assert.equal((await run()).written, false, 'a second CRLF run changes nothing');
   } finally {
     process.chdir(cwd);
   }
