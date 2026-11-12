@@ -86,8 +86,8 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   if (!q.sufficient) {
     throw new CliError(EXIT.CREDITS, `Not enough credits: needs ${q.estimated_cost}, balance ${q.available_credits}.`, 'Buy credits or narrow the job.', { quote: q });
   }
-  const max = ctx.opts['max-credits'];
-  if (max !== undefined && q.estimated_cost > Number(max)) {
+  const max = maxCredits(ctx);
+  if (max !== undefined && q.estimated_cost > max) {
     throw new CliError(EXIT.CREDITS, `Quote of ${q.estimated_cost} credits is above --max-credits ${max}.`, undefined, { quote: q });
   }
   if (ctx.opts.yes || q.estimated_cost === 0) {
@@ -107,6 +107,67 @@ export async function confirmSpend(ctx: Ctx, estimate: Record<string, unknown>, 
   );
 }
 
+/** Read one line from the terminal without echoing it. */
+function askSecret(prompt: string): Promise<string> {
+  process.stderr.write(prompt);
+  const stdin = process.stdin;
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding('utf8');
+  return new Promise((resolve, reject) => {
+    let value = '';
+    const done = (fn: () => void) => {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.off('data', onData);
+      process.stderr.write('\n');
+      fn();
+    };
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') return done(() => resolve(value.trim()));
+        if (ch === '\u0003') return done(() => reject(new CliError(EXIT.USAGE, 'Cancelled.')));
+        if (ch === '\u007f' || ch === '\b') value = value.slice(0, -1);
+        else value += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+/** An API key flag value; `-` is a hidden prompt in a terminal (ends on Enter), else the pipe. */
+export async function readKey(v: unknown): Promise<string> {
+  return v !== '-' ? String(v) : process.stdin.isTTY ? askSecret('Paste your Cleanlist API key: ') : readInput('-').trim();
+}
+
+/** --max-credits as a number. Anything else (1,000 or 5k) exits 2 so the cap is never silently off. */
+export function maxCredits(ctx: Ctx): number | undefined {
+  const v = ctx.opts['max-credits'];
+  if (v === undefined) return undefined;
+  if (!/^\d+(\.\d+)?$/.test(String(v).trim())) throw new CliError(EXIT.USAGE, `--max-credits must be a number, like 1000 (got "${v}").`);
+  return Number(v);
+}
+
+/** A flag holding a JSON object (`--args '{"a":1}'`). */
+export function jsonOpt(v: unknown, name: string): Record<string, unknown> | undefined {
+  if (v === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(v));
+  } catch (e) {
+    throw new CliError(EXIT.USAGE, `--${name} is not valid JSON: ${(e as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new CliError(EXIT.USAGE, `--${name} must be a JSON object.`);
+  return parsed as Record<string, unknown>;
+}
+
+/** The first positional argument, or exit 2 naming it and the command that lists them. */
+export function requireArg(ctx: Ctx, what: string, see?: string): string {
+  const v = ctx.args[0];
+  if (!v) throw new CliError(EXIT.USAGE, `Pass the ${what}.`, see ? `See \`cleanlist ${see}\`.` : undefined);
+  return v;
+}
+
 /** Ask before destructive, non-billed actions (delete). Same TTY/--yes rules as confirmSpend. */
 export async function confirmAction(ctx: Ctx, question: string): Promise<void> {
   if (ctx.opts.yes) return;
@@ -114,7 +175,7 @@ export async function confirmAction(ctx: Ctx, question: string): Promise<void> {
   throw new CliError(EXIT.CONFIRM, `Confirmation required: ${question}`, 'Re-run with --yes.');
 }
 
-const TERMINAL = new Set(['completed', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
+const TERMINAL = new Set(['completed', 'completed_with_errors', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
 export const isTerminal = (status?: string) => TERMINAL.has(String(status ?? '').toLowerCase());
 
 /** Duration like 90s, 10m, 1h → ms. */
