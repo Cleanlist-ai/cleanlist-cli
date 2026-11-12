@@ -60,6 +60,10 @@ export async function importCsv(ctx: Ctx, listId: string, text: string, maps: st
     const { data: r } = await ctx.api.post(`/api/v2/lead-lists/${enc(listId)}/csv-import`, {
       csv_content_base64: Buffer.from(chunk).toString('base64'),
       column_mapping: mapping,
+      // The import is free and never enriches: `enrich csv` quotes and runs
+      // enrichment itself. The API dispatches enrichment unless told not to,
+      // and refuses a dispatch without enrichment_type (422).
+      dispatch_enrichment: false,
       idempotency_key: 'cli-' + createHash('sha256').update(listId + '\0' + chunk).digest('hex').slice(0, 40),
     });
     totals.rows_parsed += r.rows_parsed ?? 0;
