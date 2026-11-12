@@ -171,6 +171,16 @@ test('mergeCodexConfig replaces the cleanlist table where it stands', () => {
   assert.equal(mergeCodexConfig('[a]\nx = 1\n', '[mcp_servers.cleanlist]\nurl = "new"\n'), '[a]\nx = 1\n\n[mcp_servers.cleanlist]\nurl = "new"\n');
 });
 
+test('mergeCodexConfig finds the cleanlist table however its header is quoted or spaced', () => {
+  for (const header of ['[mcp_servers."cleanlist"]', "[ mcp_servers . 'cleanlist' ]", '[mcp_servers."cleanlist".env]']) {
+    const out = mergeCodexConfig(`${header}\nurl = "old"\n`, '[mcp_servers.cleanlist]\nurl = "new"\n');
+    assert.equal(out, '[mcp_servers.cleanlist]\nurl = "new"\n', header);
+  }
+  // A single quoted key with a dot in it is another table.
+  const other = '["mcp_servers.cleanlist"]\nx = 1\n';
+  assert.ok(mergeCodexConfig(other, '[mcp_servers.cleanlist]\nurl = "new"\n').startsWith(other));
+});
+
 // Refusals the CLI can't work around.
 
 test('person_required and opt_in_scope_required say who can do it and where', () => {
@@ -203,6 +213,12 @@ test('actions run: --yes confirms the card once, in its session', async () => {
   const ctx = fakeCtx(['lists.delete'], { yes: true }, routes);
   assert.equal((await cmd(actionCommands, 'actions run').run(ctx)).status, 'done');
   assert.deepEqual(ctx.calls[1], { method: 'POST', path: '/api/v2/actions/confirm', body: { card_id: 'crd_1', session_id: 'ses_1' } });
+});
+
+test('actions confirm refuses --dry-run and sends nothing', async () => {
+  const ctx = fakeCtx(['crd_1'], { session: 'sess_1', 'dry-run': true }, routes);
+  await assert.rejects(cmd(actionCommands, 'actions confirm').run(ctx), (e) => e.exitCode === EXIT.USAGE);
+  assert.deepEqual(ctx.calls, []);
 });
 
 test('actions run: a person-only card refused at confirm surfaces person_required', async () => {

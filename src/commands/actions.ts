@@ -99,6 +99,7 @@ export const actionCommands: Command[] = [
     async run(ctx) {
       const cardId = requireArg(ctx, 'card_id');
       if (!ctx.opts.session) throw new CliError(EXIT.USAGE, 'Pass --session, the session_id the card came with.');
+      if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here: confirm runs the card.', 'Run it without --dry-run to run the approved card.');
       return confirmCard(ctx, cardId, ctx.opts.session);
     },
   },

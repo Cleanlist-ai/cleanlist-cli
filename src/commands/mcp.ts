@@ -49,6 +49,14 @@ export function mergeJsonConfig(existing: string | undefined, entry: Record<stri
 
 const tomlString = (s: string) => JSON.stringify(s); // a TOML basic string has JSON's escapes
 
+/** True for `[mcp_servers.cleanlist]` and its sub-tables, however the header quotes or spaces its keys. */
+function isCleanlistTable(raw: string): boolean {
+  const parts = (raw.match(/"(?:[^"\\]|\\.)*"|'[^']*'|[^."'\s]+/g) ?? []).map((p) =>
+    p.startsWith('"') ? JSON.parse(p) : p.startsWith("'") ? p.slice(1, -1) : p
+  );
+  return parts[0] === 'mcp_servers' && parts[1] === 'cleanlist';
+}
+
 /**
  * Replace the `[mcp_servers.cleanlist]` table (and its sub-tables) in a Codex
  * config.toml where it stands, keeping everything else; append it when there is none.
@@ -60,7 +68,7 @@ export function mergeCodexConfig(existing: string | undefined, block: string): s
   let at = -1;
   for (const line of lines) {
     const header = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
-    if (header) skipping = header[1] === 'mcp_servers.cleanlist' || header[1].startsWith('mcp_servers.cleanlist.');
+    if (header) skipping = isCleanlistTable(header[1]);
     if (skipping && at < 0) at = out.length;
     if (!skipping) out.push(line);
   }
@@ -161,6 +169,10 @@ async function install(ctx: Ctx, host: Host, key: string | undefined): Promise<{
   }
   ctx.log(`${exists ? 'Changes to' : 'New file'} ${path}:\n${mask(diff)}`);
   await confirmAction(ctx, `Write ${path}?`);
+  // The app may have rewritten it while we waited: writing our copy would drop that.
+  if ((existsSync(path) ? readFileSync(path, 'utf8') : '') !== before) {
+    throw new CliError(EXIT.ERROR, `${path} changed while waiting for confirmation. Nothing was written.`, 'Run this again.');
+  }
   writeConfig(path, next, key);
   ctx.log(`Wrote ${path}. ${AFTER[host](key)}`);
   return { path, changed: true };
