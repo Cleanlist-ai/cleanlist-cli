@@ -302,3 +302,11 @@ test('0.1.0 agent commands exit 2 and point at smart-agents; agents on says a pe
   assert.equal(on.code, EXIT.USAGE);
   assert.match(JSON.parse(on.stderr).error.fix, /Cleanlist app/);
 });
+
+test('mergeCodexConfig leaves header-shaped text inside multiline strings alone', () => {
+  const before = '[profiles.work]\nnotes = """\n[mcp_servers.cleanlist]\nkeep me\n"""\nlit = \'\'\'\n[mcp_servers.cleanlist]\n\'\'\'\n\n[mcp_servers.cleanlist]\nurl = "old"\n';
+  const after = mergeCodexConfig(before, '[mcp_servers.cleanlist]\nurl = "new"\n');
+  assert.ok(after.includes('notes = """\n[mcp_servers.cleanlist]\nkeep me\n"""'), after);
+  assert.ok(after.includes("lit = '''\n[mcp_servers.cleanlist]\n'''"), after);
+  assert.ok(after.endsWith('[mcp_servers.cleanlist]\nurl = "new"\n') && !after.includes('url = "old"'), after);
+});

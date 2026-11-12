@@ -81,9 +81,14 @@ export function mergeCodexConfig(existing: string | undefined, block: string): s
   const out: string[] = [];
   let skipping = false;
   let at = -1;
+  // The delimiter of a multiline string open at the start of the line: a
+  // header-shaped line inside one is string content, not a table.
+  let open: '"""' | "'''" | undefined;
   for (const line of lines) {
-    const header = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
+    const header = open ? null : /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
     if (header) skipping = isCleanlistTable(header[1]);
+    const delim = open ?? (/"""|'''/.exec(line)?.[0] as typeof open);
+    if (delim && line.split(delim).length % 2 === 0) open = open ? undefined : delim;
     if (skipping && at < 0) at = out.length;
     if (!skipping) out.push(line);
   }
