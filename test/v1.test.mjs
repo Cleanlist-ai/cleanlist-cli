@@ -317,3 +317,12 @@ test('mergeCodexConfig ignores multiline delimiters in comments and single-line 
   assert.ok(after.includes('[profiles.work]\nmodel = "keep"'), after);
   assert.ok(after.startsWith('[mcp_servers.cleanlist]\nurl = "new"\n') && !after.includes('url = "old"'), after);
 });
+
+test('mergeCodexConfig counts quotes before a multiline close as part of the value', () => {
+  for (const args of [`["""x"""", "'''"]`, `['''x'''', '''y''']`, `["""x""""", "z"]`]) {
+    const before = `[mcp_servers.cleanlist]\ncommand = "old"\nargs = ${args}\n\n[profiles.work]\nmodel = "keep"\n`;
+    const after = mergeCodexConfig(before, '[mcp_servers.cleanlist]\nurl = "new"\n');
+    assert.ok(after.includes('[profiles.work]\nmodel = "keep"'), after);
+    assert.ok(!after.includes('command = "old"'), after);
+  }
+});

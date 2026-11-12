@@ -84,7 +84,13 @@ export function multilineOpenAfter(line: string, open: Multiline): Multiline {
   while (i < line.length) {
     if (open) {
       if (open === '"""' && line[i] === '\\') i += 2;
-      else if (line.startsWith(open, i)) (open = undefined), (i += 3);
+      else if (line.startsWith(open, i)) {
+        // Up to two more quotes right before the close belong to the value.
+        let end = i + 3;
+        while (end < i + 5 && line[end] === open[0]) end++;
+        open = undefined;
+        i = end;
+      }
       else i++;
       continue;
     }
