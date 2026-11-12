@@ -1,6 +1,6 @@
 {
   "name": "@cleanlist-ai/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cleanlist from your terminal: find people, enrich CSVs and lists, run smart agents, export. Built for Claude Code, Cursor and Codex.",
   "license": "MIT",
   "author": "Cleanlist <sal@cleanlist.ai>",
