@@ -156,7 +156,7 @@ when piped, with a `fix` hint.
 | 2 | Bad input (flags, validation, ambiguous list name) |
 | 3 | Not signed in, revoked, the plan has no API access, or a person must do it (`person_required`, `opt_in_scope_required`) |
 | 4 | Not found |
-| 5 | Not enough credits, or the quote is above `--max-credits` |
+| 5 | Not enough credits, a spend cap, or the quote is above `--max-credits` |
 | 6 | Rate limited |
 | 7 | Confirmation required: re-run with `--yes` once the cost is approved |
 | 8 | `--wait` timed out; the job is still running (the error shows how to resume) |
@@ -230,7 +230,7 @@ Cleanlist entry in place and leaves every other server and setting as it was.
 ```bash
 npm install
 npm test             # build + unit tests
-npm run check-spec   # every API path the CLI calls is in the public v2 spec (prod by default; pass a spec URL)
+npm run check-spec   # every API path the CLI calls is in the public v2 spec (prod by default; pass a spec URL or file)
 node dist/cli.js --help
 ```
 

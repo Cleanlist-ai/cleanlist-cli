@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Fails if the CLI calls an API path that isn't in the public v2 spec, so the
 // CLI only ever uses documented operations and notices when one is removed.
-// Usage: node scripts/check-spec.mjs [spec-url]   (default: production)
+// Usage: node scripts/check-spec.mjs [spec-url|file]   (default: production)
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const url = process.argv[2] || 'https://api.cleanlist.ai/openapi-public-v2.json';
-const spec = await (await fetch(url)).json();
+const spec = /^https?:/.test(url) ? await (await fetch(url)).json() : JSON.parse(readFileSync(url, 'utf8'));
 // A WebSocket route (`cleanlist listen`): OpenAPI never lists one.
 const WEBSOCKETS = ['/api/v2/events/listen'];
 const documented = [...Object.keys(spec.paths), ...WEBSOCKETS].map((p) => new RegExp('^' + p.replace(/\{[^}]+\}/g, '[^/]+') + '$'));

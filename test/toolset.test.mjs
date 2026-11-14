@@ -321,13 +321,21 @@ test('inbox reply needs exactly one non-empty body; inbox list checks --status a
   assert.deepEqual(ok.calls[0].query, { status: 'needs_reply', since: '2026-11-09', q: undefined, limit: undefined, offset: undefined });
 });
 
-test('inbox done archives the thread; updates passes --since', async () => {
+test('inbox done archives the thread; updates passes --since and --limit', async () => {
   const done = fakeCtx(['th1'], {}, { 'PATCH /api/v2/inbox/threads/th1': { id: 'th1' } });
   await cmd(inboxCommands, 'inbox done').run(done);
   assert.deepEqual(done.calls[0].body, { status: 'done', commit: false });
   const up = fakeCtx([], { since: '2026-11-10T09:00:00Z' }, { 'GET /api/v2/updates': { since: 'a', until: 'b' } });
   assert.equal((await cmd(updateCommands, 'updates').run(up)).until, 'b');
-  assert.deepEqual(up.calls[0].query, { since: '2026-11-10T09:00:00Z' });
+  assert.deepEqual(up.calls[0].query, { since: '2026-11-10T09:00:00Z', limit: undefined });
+  const lim = fakeCtx([], { limit: '25' }, { 'GET /api/v2/updates': {} });
+  await cmd(updateCommands, 'updates').run(lim);
+  assert.deepEqual(lim.calls[0].query, { since: undefined, limit: 25 });
+  for (const limit of ['0', '101']) {
+    const bad = fakeCtx([], { limit }, {});
+    await assert.rejects(cmd(updateCommands, 'updates').run(bad), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(bad.calls.length, 0);
+  }
 });
 
 // end to end through the binary: exit 7 puts the card on stdout
