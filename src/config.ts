@@ -12,6 +12,8 @@ export interface Profile {
   organizationName?: string;
   email?: string;
   authType?: 'api_key' | 'oauth';
+  /** A test key (clapi_test_...) is saved for `--test`. */
+  hasTestKey?: boolean;
 }
 
 interface ConfigFile {
@@ -69,6 +71,18 @@ export function removeProfile(name: string): void {
   if (cfg.defaultProfile === name) cfg.defaultProfile = Object.keys(cfg.profiles)[0];
   writePrivate(configPath(), cfg);
 }
+
+/** Make an existing profile the one used when --profile and CLEANLIST_PROFILE are unset. */
+export function useProfile(name: string): boolean {
+  const cfg = loadConfig();
+  if (!cfg.profiles[name]) return false;
+  cfg.defaultProfile = name;
+  writePrivate(configPath(), cfg);
+  return true;
+}
+
+/** Where a profile's test key is kept, next to its live credential. */
+export const testCredentialName = (profile: string) => `${profile}:test`;
 
 export function profileName(flag?: string): string {
   return flag || process.env.CLEANLIST_PROFILE || loadConfig().defaultProfile || 'default';

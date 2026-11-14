@@ -58,6 +58,17 @@ async function settleCard(ctx: Ctx, res: ActionResult): Promise<unknown> {
   );
 }
 
+/**
+ * Call an action by name. A result comes back as is; a card runs nothing
+ * until confirmed (settleCard). Shared by `actions run` and the commands built
+ * on actions (`sequences`).
+ */
+export async function runAction(ctx: Ctx, name: string, args: Record<string, unknown>, session?: string): Promise<unknown> {
+  const { data } = await ctx.api.post<ActionResult>(`/api/v2/actions/${enc(name)}`, { arguments: args, session_id: session });
+  if (data.kind !== 'card') return okOrThrow(data);
+  return { action: data.action, session_id: data.session_id, ...((await settleCard(ctx, data)) as object) };
+}
+
 export const actionCommands: Command[] = [
   {
     name: 'actions list',
@@ -84,10 +95,7 @@ export const actionCommands: Command[] = [
     async run(ctx) {
       const name = requireArg(ctx, 'action name, e.g. agents.get', 'actions list');
       if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: an action that spends or sends returns a card and runs nothing.');
-      const body = { arguments: jsonOpt(ctx.opts.args, 'args') ?? {}, session_id: ctx.opts.session };
-      const { data } = await ctx.api.post<ActionResult>(`/api/v2/actions/${enc(name)}`, body);
-      if (data.kind !== 'card') return okOrThrow(data);
-      return { action: data.action, session_id: data.session_id, ...((await settleCard(ctx, data)) as object) };
+      return runAction(ctx, name, jsonOpt(ctx.opts.args, 'args') ?? {}, ctx.opts.session);
     },
   },
   {

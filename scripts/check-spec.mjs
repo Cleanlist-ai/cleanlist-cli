@@ -7,7 +7,9 @@ import { join } from 'node:path';
 
 const url = process.argv[2] || 'https://api.cleanlist.ai/openapi-public-v2.json';
 const spec = await (await fetch(url)).json();
-const documented = Object.keys(spec.paths).map((p) => new RegExp('^' + p.replace(/\{[^}]+\}/g, '[^/]+') + '$'));
+// A WebSocket route (`cleanlist listen`): OpenAPI never lists one.
+const WEBSOCKETS = ['/api/v2/events/listen'];
+const documented = [...Object.keys(spec.paths), ...WEBSOCKETS].map((p) => new RegExp('^' + p.replace(/\{[^}]+\}/g, '[^/]+') + '$'));
 
 const files = readdirSync('src', { recursive: true }).filter((f) => f.endsWith('.ts'));
 const used = new Set();
