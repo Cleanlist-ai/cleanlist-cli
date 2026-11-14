@@ -1,5 +1,6 @@
-import { type Command, type Ctx, jsonOpt, requireArg } from '../context.js';
+import { type Command, type Ctx, jsonOpt, liveRun, requireArg } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
+import { waitForRun } from './plays.js';
 
 const enc = encodeURIComponent;
 const agentId = (ctx: Ctx) => requireArg(ctx, 'agent id', 'agents list');
@@ -8,9 +9,10 @@ const agentId = (ctx: Ctx) => requireArg(ctx, 'agent id', 'agents list');
 const schedule = (v: unknown) => (v === 'null' ? null : jsonOpt(v, 'schedule'));
 
 /**
- * GTM agents, as in the portal. Turning one on, running it now and setting its
- * limits are a person's to do in the Cleanlist app: the API refuses them from
- * code (403 person_required), so there is no command for them.
+ * GTM agents, as in the portal. Turning one on and running it now go through
+ * the route's preview, a quote and `commit: true` (`liveRun`); the key needs
+ * the opt-in scope of every send and CRM write its plays can make. Its limits
+ * stay a person's to set in the Cleanlist app.
  */
 export const agentCommands: Command[] = [
   {
@@ -33,7 +35,7 @@ export const agentCommands: Command[] = [
   },
   {
     name: 'agents create',
-    summary: 'Create an agent. It starts off, with no play; a person turns it on in Cleanlist.',
+    summary: 'Create an agent. It starts off, with no play.',
     options: {
       name: { type: 'string', desc: 'Agent name (required).' },
       description: { type: 'string', desc: 'What it is for.' },
@@ -74,10 +76,39 @@ export const agentCommands: Command[] = [
   {
     name: 'agents off',
     args: '<agent_id>',
-    summary: 'Turn an agent off: its triggers and schedule stop. Turning one on is done in Cleanlist.',
+    summary: 'Turn an agent off: its triggers and schedule stop.',
     examples: ['cleanlist agents off <agent_id>'],
     async run(ctx) {
       return (await ctx.api.post(`/api/v2/gtm-agents/${enc(agentId(ctx))}/status`, { status: 'off' })).data;
+    },
+  },
+  {
+    name: 'agents on',
+    args: '<agent_id>',
+    summary: 'Turn an agent on: its triggers and schedule start. Shows what it can spend, send and write to a CRM, and asks first.',
+    paid: true,
+    examples: ['cleanlist agents on <agent_id> --dry-run', 'cleanlist agents on <agent_id> --yes'],
+    async run(ctx) {
+      const id = agentId(ctx);
+      return liveRun(ctx, `/api/v2/gtm-agents/${enc(id)}/status`, { status: 'on' }, 'Turn the agent on');
+    },
+  },
+  {
+    name: 'agents run',
+    args: '<agent_id>',
+    summary: "Run an agent's play now. Shows what it can spend, send and write to a CRM, and asks first.",
+    paid: true,
+    options: {
+      play: { type: 'string', desc: "playbook_id of the play to run, when the agent has several." },
+      wait: { type: 'boolean', desc: 'Block until the run finishes.' },
+      timeout: { type: 'string', desc: 'Give up waiting after this long (default 30m); exit 8.' },
+    },
+    examples: ['cleanlist agents run <agent_id> --dry-run', 'cleanlist agents run <agent_id> --yes --wait'],
+    async run(ctx) {
+      const id = agentId(ctx);
+      const data = await liveRun(ctx, `/api/v2/gtm-agents/${enc(id)}/runs`, { playbook_id: ctx.opts.play }, 'Run the agent');
+      // run_id is null when the run is queued (a CRM cleanup play waits for its scan): nothing to wait on yet.
+      return ctx.opts.wait && data?.run_id ? waitForRun(ctx, data.run_id) : data;
     },
   },
   {

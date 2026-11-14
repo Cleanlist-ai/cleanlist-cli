@@ -101,6 +101,7 @@ test('API errors map to exit codes and keep the server envelope', () => {
   assert.equal(e.apiCode, 'insufficient_credits');
   assert.equal(toError(401, { detail: 'Invalid or expired API key' }).exitCode, EXIT.AUTH);
   assert.equal(toError(404, {}).exitCode, EXIT.NOT_FOUND);
+  assert.equal(toError(400, { error: { code: 'spend_cap_exceeded', problem: 'Over the cap' } }).exitCode, EXIT.CREDITS);
   assert.equal(toError(422, { detail: [{ loc: ['body', 'name'], msg: 'Field required' }] }).message, 'name: Field required');
   assert.equal(toError(429, {}).exitCode, EXIT.RATE_LIMITED);
   assert.equal(toError(500, {}).exitCode, EXIT.ERROR);
