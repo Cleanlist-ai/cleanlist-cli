@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { type Credential, saveCredential } from './config.js';
 import { CliError, EXIT, exitCodeForStatus } from './errors.js';
 import { refresh } from './oauth.js';
@@ -10,14 +11,32 @@ export interface ApiResult<T = any> {
   data: T;
 }
 
+const WRITES = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+/** Tries per request for 429, 5xx, a write still running elsewhere, and network errors. */
+export const MAX_TRIES = 3;
+/** Longer waits than this aren't worth blocking on: fail with exit 6 and say when to retry. */
+export const MAX_WAIT_MS = 60_000;
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Only a GET is ever retried, and only on a gateway error (or no response at
- * all). A POST, PATCH or DELETE is sent once: there are no idempotency keys
- * yet, so a resent write could run twice.
+ * How long to wait before retry number `attempt` (0-based): the server's
+ * retry_after_ms, else Retry-After (seconds or an HTTP date), else 1s, 2s, 4s
+ * with jitter.
  */
-const RETRYABLE = new Set([502, 503, 504]);
-const MAX_TRIES = 3;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export function retryDelayMs(attempt: number, retryAfter: string | null, body: any): number {
+  const ms = Number(body?.error?.retry_after_ms);
+  if (Number.isFinite(ms) && ms > 0) return ms;
+  if (retryAfter) {
+    const secs = Number(retryAfter);
+    if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
+  return 1000 * 2 ** attempt * (0.75 + Math.random() / 2);
+}
+
+const retryable = (status: number, body: any) =>
+  status === 429 || status >= 500 || (status === 409 && body?.error?.code === 'idempotency_in_progress');
 
 /** Thin client for the public v2 API. Bodies go out and come back as the API defines them. */
 export class Api {
@@ -27,13 +46,24 @@ export class Api {
     private readonly profile: string,
     /** Where the credential came from; only stored credentials get refreshed and saved. */
     private readonly stored: boolean,
+    /** Called once, on the first response that says it ran in test mode. */
+    private readonly onTestMode?: () => void,
   ) {}
+
+  /** `test` once the server has answered `Cleanlist-Mode: test`. */
+  mode: 'live' | 'test' = 'live';
 
   get authType() {
     return this.cred?.type;
   }
 
-  private async token(): Promise<string> {
+  /** True for a clapi_test_ key, which always runs in the sandbox workspace. */
+  get testKey(): boolean {
+    return this.cred?.type === 'api_key' && this.cred.key.startsWith('clapi_test_');
+  }
+
+  /** A bearer token for this credential, refreshed when an OAuth one is about to expire. */
+  async token(): Promise<string> {
     const c = this.cred;
     if (!c) {
       throw new CliError(
@@ -67,7 +97,13 @@ export class Api {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
     }
 
-    const retries = method.toUpperCase() === 'GET';
+    // A write is resent only with its Idempotency-Key: one key per call, reused by its own
+    // retries, so the server runs it once and replays the stored answer.
+    const idempotencyKey = WRITES.has(method.toUpperCase()) ? randomUUID() : undefined;
+    // A quote is single-use and a route spends it before its work, so resending it after a
+    // 5xx or a dropped connection fails as already used and hides the real error. Those go
+    // back to the caller (`spend` gets a fresh quote); a 429 comes before the route and retries.
+    const quoteBound = Boolean((opts.body as { quote_id?: unknown } | undefined)?.quote_id);
     let refreshed = false;
     for (let attempt = 0; ; attempt++) {
       const token = await this.token(); // outside the try: a missing credential isn't a network error
@@ -80,21 +116,22 @@ export class Api {
             accept: 'application/json',
             'user-agent': `cleanlist-cli/${VERSION} node/${process.version}`,
             ...(opts.body === undefined ? {} : { 'content-type': 'application/json' }),
+            ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
           },
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
         });
       } catch (e) {
-        if (retries && attempt + 1 < MAX_TRIES) {
-          await sleep(1000 * 2 ** attempt);
+        if (attempt + 1 < MAX_TRIES && !quoteBound) {
+          await sleep(retryDelayMs(attempt, null, undefined));
           continue;
         }
-        throw new CliError(
-          EXIT.ERROR,
-          `Couldn't reach ${url.origin}: ${(e as Error).message}`,
-          retries ? undefined : 'It was not resent. The write may still have gone through: check before running it again.',
-        );
+        throw new CliError(EXIT.ERROR, `Couldn't reach ${url.origin}: ${(e as Error).message}`, quoteBound ? MAYBE_SPENT : undefined);
       }
 
+      if (res.headers.get('cleanlist-mode') === 'test' && this.mode !== 'test') {
+        this.mode = 'test';
+        this.onTestMode?.();
+      }
       const text = await res.text();
       let data: any = text;
       try {
@@ -108,18 +145,28 @@ export class Api {
       // server refused before doing anything, so this resend is safe for writes too.
       if (res.status === 401 && this.cred?.type === 'oauth' && !refreshed) {
         refreshed = true;
+        attempt--; // not a retry of a failure
         await this.refresh();
         continue;
       }
-      if (retries && RETRYABLE.has(res.status) && attempt + 1 < MAX_TRIES) {
-        const retryAfter = Number(res.headers.get('retry-after')) || data?.error?.retry_after_ms / 1000 || 2 ** attempt;
-        await sleep(Math.min(retryAfter, 30) * 1000);
-        continue;
+      if (retryable(res.status, data) && !(quoteBound && res.status >= 500) && attempt + 1 < MAX_TRIES) {
+        const wait = retryDelayMs(attempt, res.headers.get('retry-after'), data);
+        if (wait <= MAX_WAIT_MS) {
+          await sleep(wait);
+          continue;
+        }
       }
-      throw toError(res.status, data);
+      const err = toError(res.status, data);
+      // The server didn't say it stopped before charging: the call may have run.
+      if (quoteBound && res.status >= 500 && data?.error?.retryable !== true) {
+        throw new CliError(err.exitCode, err.message, MAYBE_SPENT, err.detail);
+      }
+      throw err;
     }
   }
 }
+
+const MAYBE_SPENT = 'It may have run and spent its quote. Check `cleanlist usage` before running it again; a re-run gets a fresh quote.';
 
 /** Refusals the CLI can't work around: say who can do it, and where. */
 const REFUSAL_FIX: Record<string, (env: any) => string> = {

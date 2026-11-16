@@ -19,7 +19,14 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 - Export a list: \`cleanlist lists export "<list>" -o out.csv\`
 - Read a list: \`cleanlist lists rows "<list>" --all --format jsonl\`
 - AI column: \`cleanlist smart-agents run "<list>" --column Hook --prompt "..." --rows 10 --dry-run\`
-- GTM agents: \`cleanlist agents list\`, \`cleanlist agents runs <agent_id>\`, \`cleanlist plays results <run_id>\`
+- GTM agents: \`cleanlist agents list\`, \`cleanlist agents run <agent_id> --dry-run\`,
+  \`cleanlist agents runs <agent_id>\`, \`cleanlist plays results <run_id>\`
+- Play as a function: \`cleanlist plays list\`, then \`cleanlist plays run <playbook_id> --inputs '{...}' --dry-run\`
+- Your day: \`cleanlist updates --json\` (replies, tasks due, finished runs, approvals;
+  pass its \`until\` as the next \`--since\`), \`cleanlist tasks list --status due\`,
+  \`cleanlist inbox list --status needs_reply\`, \`cleanlist inbox read <thread_id>\`
+- Signals: \`cleanlist jobs search\`, \`cleanlist job-changes list\`, \`cleanlist companies signals\`,
+  \`cleanlist meetings list\`
 - Any Clu action: \`cleanlist actions list --json\`, then \`cleanlist actions run <name> --args '{...}'\`
 - Credits: \`cleanlist credits --json\`
 
@@ -38,10 +45,14 @@ ask the user to run \`cleanlist login\` or set CLEANLIST_API_KEY).
 - People search has a daily cap per API key: don't loop \`--all\`.
 - An action that spends, sends, deletes or writes to a CRM returns a card and
   exits 7: show the user the card, and confirm it only after they say yes.
-- Exit 3 with \`person_required\` (turning an agent on, running it now, its
-  limits): only the person can do that, in the Cleanlist app. Don't work around it.
-  With \`opt_in_scope_required\`, the key needs the named scope ticked in
-  Settings → API keys.
+- \`agents on\`, \`agents run\` and \`plays run\` quote what the run can spend and
+  whether it can email people or write to a CRM; \`inbox reply\` and a task change
+  that writes to a CRM print who they reach. All exit 7 without \`--yes\`: show it,
+  and re-run with \`--yes\` only after the user approves.
+- Exit 3 with \`opt_in_scope_required\`: the key needs the named scope ticked in
+  Settings → API keys. With \`person_required\` (an agent's limits), only the
+  person can do it, in the Cleanlist app. Don't work around either.
+- \`--test\` (or a clapi_test_ key) runs in the sandbox workspace: nothing is sent or charged.
 - Lists can be named by id or exact name.
 - \`cleanlist <command> --help\` lists every flag.
 `;

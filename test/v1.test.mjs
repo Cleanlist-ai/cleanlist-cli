@@ -78,45 +78,56 @@ test('a GET is retried on 502, 503 and 504, then succeeds', async () => {
   }
 });
 
-test('a GET stops after 3 tries, and is not retried on 429 or 500', async () => {
-  const s = await server((req, res) => gatewayError(res, 503));
+test('a GET stops after 3 tries, and is retried on 429 and 500 too; a 4xx is not', async () => {
+  for (const status of [503, 429, 500]) {
+    const s = await server((req, res) => gatewayError(res, status));
+    try {
+      await assert.rejects(new Api(s.url, { type: 'api_key', key: 'k' }, 'default', false).get('/api/v2/x'));
+      assert.equal(s.hits.length, 3, `status ${status}`);
+    } finally {
+      s.close();
+    }
+  }
+  const t = await server((req, res) => send(res, 422, { error: { code: 'validation_error', problem: 'bad' } }));
   try {
-    await assert.rejects(new Api(s.url, { type: 'api_key', key: 'k' }, 'default', false).get('/api/v2/x'), (e) => e.exitCode === EXIT.ERROR);
-    assert.equal(s.hits.length, 3);
+    await assert.rejects(new Api(t.url, { type: 'api_key', key: 'k' }, 'default', false).get('/api/v2/x'), (e) => e.exitCode === EXIT.USAGE);
+    assert.equal(t.hits.length, 1);
+  } finally {
+    t.close();
+  }
+});
+
+test('POST, PATCH, PUT and DELETE are retried only with one Idempotency-Key, the same on every try', async () => {
+  for (const method of ['POST', 'PATCH', 'PUT', 'DELETE']) {
+    const keys = [];
+    const s = await server((req, res, n) => {
+      keys.push(req.headers['idempotency-key']);
+      return n < 3 ? gatewayError(res, 503) : send(res, 200, { ok: true });
+    });
+    try {
+      const { data } = await new Api(s.url, { type: 'api_key', key: 'k' }, 'default', false).request(method, '/api/v2/x', { body: {} });
+      assert.deepEqual(data, { ok: true });
+      assert.equal(keys.length, 3, method);
+      assert.ok(keys[0] && keys.every((k) => k === keys[0]), `${method} keys ${keys}`);
+    } finally {
+      s.close();
+    }
+  }
+});
+
+test('a write that carries a quote_id is not resent after a 5xx or no response, and says it may have spent the quote', async () => {
+  const s = await server((req, res) => gatewayError(res, 502));
+  try {
+    await assert.rejects(new Api(s.url, { type: 'api_key', key: 'k' }, 'default', false).post('/api/v2/x', { quote_id: 'q' }), (e) => /spent its quote/.test(e.fix));
+    assert.equal(s.hits.length, 1);
   } finally {
     s.close();
   }
-  for (const status of [429, 500]) {
-    const t = await server((req, res) => gatewayError(res, status));
-    try {
-      await assert.rejects(new Api(t.url, { type: 'api_key', key: 'k' }, 'default', false).get('/api/v2/x'));
-      assert.equal(t.hits.length, 1, `status ${status}`);
-    } finally {
-      t.close();
-    }
-  }
-});
-
-test('POST, PATCH, PUT and DELETE are never retried, even on 502/503/504', async () => {
-  for (const method of ['POST', 'PATCH', 'PUT', 'DELETE']) {
-    for (const status of [502, 503, 504]) {
-      const s = await server((req, res) => gatewayError(res, status));
-      try {
-        await assert.rejects(new Api(s.url, { type: 'api_key', key: 'k' }, 'default', false).request(method, '/api/v2/x', { body: {} }));
-        assert.deepEqual(s.hits, [`${method} /api/v2/x`], `${method} ${status}`);
-      } finally {
-        s.close();
-      }
-    }
-  }
-});
-
-test('a POST that gets no response is not resent, and says the write may have gone through', async () => {
-  const s = await server(() => {});
-  const url = s.url;
-  s.close(); // nothing listens: connection refused
+  const gone = await server(() => {});
+  const url = gone.url;
+  gone.close(); // nothing listens: connection refused
   await new Promise((r) => setTimeout(r, 20));
-  await assert.rejects(new Api(url, { type: 'api_key', key: 'k' }, 'default', false).post('/api/v2/x', {}), (e) => /not resent/.test(e.fix));
+  await assert.rejects(new Api(url, { type: 'api_key', key: 'k' }, 'default', false).post('/api/v2/x', { quote_id: 'q' }), (e) => /spent its quote/.test(e.fix));
 });
 
 // mcp install: update in place.
@@ -292,15 +303,12 @@ test('agents list is GTM agents (a JSON array); the AI-column list is smart-agen
   }
 });
 
-test('0.1.0 agent commands exit 2 and point at smart-agents; agents on says a person does it', async () => {
+test('0.1.0 agent commands exit 2 and point at smart-agents', async () => {
   for (const args of [['agents', 'run', 'Q4', '--column', 'Hook'], ['agents', 'results', 't1'], ['agents', 'list', '--list', 'Q4']]) {
     const r = await runCli(args);
     assert.equal(r.code, EXIT.USAGE, args.join(' '));
     assert.match(JSON.parse(r.stderr).error.fix, /smart-agents/, args.join(' '));
   }
-  const on = await runCli(['agents', 'on', 'a1']);
-  assert.equal(on.code, EXIT.USAGE);
-  assert.match(JSON.parse(on.stderr).error.fix, /Cleanlist app/);
 });
 
 test('mergeCodexConfig leaves header-shaped text inside multiline strings alone', () => {

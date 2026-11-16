@@ -113,6 +113,7 @@ export const peopleCommands: Command[] = [
   {
     name: 'people compile',
     summary: 'Show how your filters are interpreted, without running the search.',
+    examples: ['cleanlist people compile --title "VP Sales" --country "United States"'],
     options: { ...searchOptions, keywords: { type: 'string', desc: 'Boolean keyword query.' }, criteria: { type: 'string', desc: 'JSON file (or -) with PeopleSearchCriteria.' } },
     async run(ctx) {
       return (await ctx.api.post('/api/v2/people/find/compile', { criteria: criteriaFrom(ctx) })).data;

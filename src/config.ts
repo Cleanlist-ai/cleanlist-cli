@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { CliError, EXIT } from './errors.js';
 
 export const DEFAULT_API_URL = 'https://api.cleanlist.ai';
 
@@ -12,6 +13,8 @@ export interface Profile {
   organizationName?: string;
   email?: string;
   authType?: 'api_key' | 'oauth';
+  /** A test key (clapi_test_...) is saved for `--test`. */
+  hasTestKey?: boolean;
 }
 
 interface ConfigFile {
@@ -68,6 +71,28 @@ export function removeProfile(name: string): void {
   delete cfg.profiles[name];
   if (cfg.defaultProfile === name) cfg.defaultProfile = Object.keys(cfg.profiles)[0];
   writePrivate(configPath(), cfg);
+}
+
+/** Make an existing profile the one used when --profile and CLEANLIST_PROFILE are unset. */
+export function useProfile(name: string): boolean {
+  const cfg = loadConfig();
+  if (!cfg.profiles[name]) return false;
+  cfg.defaultProfile = name;
+  writePrivate(configPath(), cfg);
+  return true;
+}
+
+/**
+ * Where a profile's test key is kept, next to its live credential. New profile
+ * names can't hold a colon (login refuses them), but one saved before that rule
+ * could be named `<profile>:test`: refuse rather than share its credential.
+ */
+export function testCredentialName(profile: string): string {
+  const name = `${profile}:test`;
+  if (loadConfig().profiles[name]) {
+    throw new CliError(EXIT.USAGE, `Profile "${profile}" can't keep a test key: a profile named "${name}" uses that slot.`, `Sign that profile out (\`cleanlist logout --profile ${name}\`) and sign in again under a name without a colon.`);
+  }
+  return name;
 }
 
 export function profileName(flag?: string): string {

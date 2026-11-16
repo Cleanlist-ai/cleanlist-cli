@@ -12,6 +12,9 @@ export interface View {
 
 const out = (s: string) => process.stdout.write(s);
 
+/** Shown once when the server says a call ran in test mode. */
+export const TEST_BANNER = 'TEST mode: sandbox workspace. Nothing is sent to real people or charged.';
+
 /** Messages for humans: stderr, so stdout stays clean data. Silenced by --quiet. */
 export function info(msg: string, quiet = false): void {
   if (!quiet) process.stderr.write(msg + '\n');

@@ -222,7 +222,9 @@ async function install(ctx: Ctx, host: Host, key: string | undefined): Promise<{
     next = merged.next;
     // ~/.claude.json holds all of Claude Code's state: show only the entry.
     const show = (v: unknown) => (v === undefined ? '' : JSON.stringify({ cleanlist: v }, null, 2) + '\n');
-    diff = host === 'claude-code' ? lineDiff(show(merged.previous), show(entry)) : lineDiff(before, next);
+    // A compact file would show as all new lines: diff it as it will be written.
+    const pretty = before.trim() ? JSON.stringify(JSON.parse(before), null, 2) + '\n' : '';
+    diff = host === 'claude-code' ? lineDiff(show(merged.previous), show(entry)) : lineDiff(pretty, next);
   }
   ctx.log(`${exists ? 'Changes to' : 'New file'} ${path}:\n${mask(diff)}`);
   await confirmAction(ctx, `Write ${path}?`);
