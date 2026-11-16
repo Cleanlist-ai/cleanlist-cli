@@ -21,9 +21,22 @@ function bash(commands: Command[], global: Record<string, OptSpec>): string {
   const { top, subs } = tree(commands);
   const subCases = [...subs].map(([g, s]) => `    ${g}) words="${[...s].join(' ')}" ;;`).join('\n');
   const flagCases = commands.map((c) => `    "${c.name}") flags="${flagsOf(c, global).join(' ')}" ;;`).join('\n');
+  // Flags whose next word is their value, so it isn't read as a command word. Boolean anywhere wins:
+  // ponytail: one table for every command; per-command tables if a name is ever string in one and boolean in another.
+  const specs = [global, ...commands.map((c) => c.options ?? {})].flatMap((o) => Object.entries(o));
+  const bool = new Set(specs.filter(([, s]) => s.type !== 'string').map(([f]) => f));
+  const valueFlags = [...new Set(specs.filter(([f, s]) => s.type === 'string' && !bool.has(f)).flatMap(([f, s]) => [`--${f}`, ...(s.short ? [`-${s.short}`] : [])]))];
   return `# cleanlist completion for bash. Add to ~/.bashrc:  eval "$(cleanlist completion bash)"
 _cleanlist() {
-  local cur="\${COMP_WORDS[COMP_CWORD]}" w1="\${COMP_WORDS[1]}" w2="\${COMP_WORDS[2]}" words="" flags=""
+  local cur="\${COMP_WORDS[COMP_CWORD]}" w1="" w2="" n=0 i words="" flags=""
+  # Command words are the positionals before the cursor: skip flags (global ones may come first) and their values.
+  for ((i = 1; i < COMP_CWORD; i++)); do
+    case "\${COMP_WORDS[i]}" in
+      ${valueFlags.length ? `${valueFlags.join('|')}) [ "\${COMP_WORDS[i+1]}" = "=" ] && i=$((i + 1)); i=$((i + 1)) ;;
+      ` : ''}-*|=) ;;
+      *) n=$((n + 1)); [ "$n" -eq 1 ] && w1="\${COMP_WORDS[i]}"; [ "$n" -eq 2 ] && w2="\${COMP_WORDS[i]}" ;;
+    esac
+  done
   case "$w1 $w2" in
 ${flagCases}
   esac
@@ -34,9 +47,9 @@ ${flagCases}
   fi
   if [[ "$cur" == -* ]]; then
     words="\${flags:-${Object.keys(global).map((f) => `--${f}`).join(' ')}}"
-  elif [ "$COMP_CWORD" -eq 1 ]; then
+  elif [ "$n" -eq 0 ]; then
     words="${top.join(' ')} help"
-  elif [ "$COMP_CWORD" -eq 2 ]; then
+  elif [ "$n" -eq 1 ]; then
     case "$w1" in
 ${subCases}
     esac

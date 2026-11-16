@@ -64,6 +64,8 @@ async function settleCard(ctx: Ctx, res: ActionResult): Promise<unknown> {
  * on actions (`sequences`).
  */
 export async function runAction(ctx: Ctx, name: string, args: Record<string, unknown>, session?: string): Promise<unknown> {
+  // Checked before the POST: an action without a card runs on it, and --yes would confirm a card.
+  if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: an action that spends or sends returns a card and runs nothing.');
   const { data } = await ctx.api.post<ActionResult>(`/api/v2/actions/${enc(name)}`, { arguments: args, session_id: session });
   if (data.kind !== 'card') return okOrThrow(data);
   return { action: data.action, session_id: data.session_id, ...((await settleCard(ctx, data)) as object) };
@@ -94,7 +96,6 @@ export const actionCommands: Command[] = [
     ],
     async run(ctx) {
       const name = requireArg(ctx, 'action name, e.g. agents.get', 'actions list');
-      if (ctx.opts['dry-run']) throw new CliError(EXIT.USAGE, '--dry-run is not supported here.', 'Run without --yes: an action that spends or sends returns a card and runs nothing.');
       return runAction(ctx, name, jsonOpt(ctx.opts.args, 'args') ?? {}, ctx.opts.session);
     },
   },

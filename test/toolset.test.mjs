@@ -385,3 +385,9 @@ test('cli: agents run and plays run with a 0-credit quote and no --yes exit 7 an
   assert.equal(await run(['agents', 'run', 'f226cde7-1c0a-46e4-a164-642eaffe88ff', '--yes']), 0);
   assert.equal(commits.length, 1);
 });
+
+test('sequences refuse --dry-run before any POST, even with --yes', async () => {
+  const ctx = fakeCtx(['s1', 'launch'], { yes: true, 'dry-run': true }, {});
+  await assert.rejects(cmd(sequenceCommands, 'sequences status').run(ctx), (e) => e.exitCode === EXIT.USAGE);
+  assert.deepEqual(ctx.calls, []);
+});

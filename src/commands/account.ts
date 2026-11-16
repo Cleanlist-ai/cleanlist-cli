@@ -30,6 +30,8 @@ export const accountCommands: Command[] = [
       'cleanlist login --test --api-key -             # this profile\'s test key, used with --test',
     ],
     async run(ctx) {
+      // `<profile>:test` holds a profile's test key, so a colon could name another profile's slot.
+      if (ctx.profile.includes(':')) throw new CliError(EXIT.USAGE, `Profile names can't contain ":" ("${ctx.profile}").`, 'Pick a name without a colon, e.g. acme-test.');
       let cred: Credential;
       const key = ctx.opts['api-key'];
       if (key) {
@@ -76,8 +78,8 @@ export const accountCommands: Command[] = [
     examples: ['cleanlist logout', 'cleanlist logout --profile acme --test'],
     noAuth: true,
     async run(ctx) {
-      const testName = testCredentialName(ctx.profile);
       if (ctx.test) {
+        const testName = testCredentialName(ctx.profile);
         const had = Boolean(loadCredential(testName));
         deleteCredential(testName);
         const existing = loadConfig().profiles[ctx.profile];
@@ -85,7 +87,8 @@ export const accountCommands: Command[] = [
         ctx.log(`Removed the test key from profile "${ctx.profile}".`);
         return { profile: ctx.profile, mode: 'test', removed: had };
       }
-      deleteCredential(testName);
+      // A colliding `<profile>:test` profile is someone else's live credential: leave it.
+      if (!loadConfig().profiles[`${ctx.profile}:test`]) deleteCredential(`${ctx.profile}:test`);
       const cred = loadCredential(ctx.profile);
       if (cred?.type === 'oauth') await revoke(cred);
       deleteCredential(ctx.profile);

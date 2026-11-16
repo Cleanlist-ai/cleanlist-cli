@@ -596,3 +596,23 @@ test('cli: completion bash includes the real command tree', async () => {
   assert.match(out.stdout, /mcp\) words="install"/);
   execFileSync('bash', ['-n'], { input: out.stdout });
 });
+
+test('bash completion finds command words after global flags and their values', () => {
+  const commands = [
+    { name: 'lists', summary: 'List lists.' },
+    { name: 'lists rows', summary: "Read a list's rows.", options: { all: { type: 'boolean', desc: 'Every page.' } } },
+  ];
+  const global = { test: { type: 'boolean', desc: 'Test.' }, profile: { type: 'string', desc: 'Profile.' } };
+  const complete = (...words) =>
+    execFileSync('bash', ['-c', `${completionScript('bash', commands, global)}\nCOMP_WORDS=(${words.map((w) => `'${w}'`).join(' ')}); COMP_CWORD=${words.length - 1}; _cleanlist; echo "\${COMPREPLY[*]}"`], { encoding: 'utf8' }).trim();
+  assert.equal(complete('cleanlist', '--test', 'lists', ''), 'rows');
+  assert.equal(complete('cleanlist', '--profile', 'acme', 'lists', 'rows', '--a'), '--all');
+  assert.equal(complete('cleanlist', '--profile', '=', 'acme', 'li'), 'lists');
+});
+
+test('cli: login refuses a profile name with a colon (the test-key slot)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cl-dx-'));
+  const out = await run(['login', '--api-key', 'clapi_x', '--profile', 'acme:test'], { CLEANLIST_CONFIG_DIR: dir, CLEANLIST_NO_KEYCHAIN: '1' });
+  assert.equal(out.code, EXIT.USAGE);
+  assert.match(out.stderr, /can't contain/);
+});

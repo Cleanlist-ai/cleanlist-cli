@@ -33,6 +33,8 @@ export async function forward(url: URL, secret: string, event: unknown): Promise
       body,
       signal: AbortSignal.timeout(10_000),
     });
+    // Unread bodies hold the connection; this command only reports the status.
+    await res.body?.cancel().catch(() => undefined);
     return `${res.status}`;
   } catch (e) {
     return `failed (${(e as Error).message})`;
@@ -50,6 +52,9 @@ function printEvent(ctx: Ctx, event: any, forwarded?: string): void {
   }
 }
 
+/** Events waiting to be forwarded. Shutdown drains at most the one in flight (10s timeout). */
+const MAX_PENDING = 1000;
+
 async function listen(ctx: Ctx): Promise<void> {
   const target = forwardUrl(ctx.opts['forward-to']);
   const events = list(ctx.opts.events);
@@ -61,6 +66,8 @@ async function listen(ctx: Ctx): Promise<void> {
   const seen = new Set<string>();
   let secret = '';
   let queue = Promise.resolve();
+  let pending = 0;
+  let closed = false;
 
   await new Promise<void>((resolve, reject) => {
     let errorFrame: any;
@@ -80,9 +87,19 @@ async function listen(ctx: Ctx): Promise<void> {
         // A retried emit can repeat an event.
         if (event.id && seen.has(event.id)) return;
         if (event.id) seen.add(event.id);
-        if (seen.size > 5000) seen.clear();
-        // In order, one forward at a time, like a webhook endpoint sees them.
-        queue = queue.then(async () => printEvent(ctx, event, target ? await forward(target, secret, event) : undefined));
+        // Sets keep insertion order: drop the oldest id, not the whole guard.
+        if (seen.size > 5000) seen.delete(seen.values().next().value!);
+        // A slow endpoint can't build an unbounded backlog: past MAX_PENDING, print the event unforwarded.
+        if (target && pending >= MAX_PENDING) return printEvent(ctx, event, 'skipped (forward backlog full)');
+        pending++;
+        // In order, one forward at a time, like a webhook endpoint sees them. Once closed, the rest print unforwarded.
+        queue = queue.then(async () => {
+          try {
+            printEvent(ctx, event, target ? (closed ? 'not forwarded (stopped)' : await forward(target, secret, event)) : undefined);
+          } finally {
+            pending--;
+          }
+        });
       } else if (frame.type === 'error') {
         errorFrame = frame;
       } else if (frame.type === 'closing') {
@@ -90,6 +107,7 @@ async function listen(ctx: Ctx): Promise<void> {
       }
     };
     const onClose = (code: number) => {
+      closed = true;
       // Refusals close with 4000 + the HTTP status, after an error frame.
       if (code >= 4000 && code < 5000) return reject(toError(code - 4000, errorFrame ?? {}));
       if (errorFrame) return reject(toError(500, errorFrame));
