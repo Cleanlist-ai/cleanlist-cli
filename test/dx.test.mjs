@@ -540,6 +540,8 @@ test('cli: mcp install --api-key - reads the piped key, and a key goes into an e
 
 test('cli: mcp install masks a key already in the config, in an oauth or a new-key install', async () => {
   const home = mkdtempSync(join(tmpdir(), 'cl-home-'));
+  // CI runners set XDG_CONFIG_HOME, which the CLI would follow out of the temp home.
+  const env = { HOME: home, XDG_CONFIG_HOME: join(home, '.config'), APPDATA: join(home, 'AppData', 'Roaming') };
   const old = 'clapi_live_oldsecret5678';
   const cursor = join(home, '.cursor', 'mcp.json');
   const codex = join(home, '.codex', 'config.toml');
@@ -548,11 +550,11 @@ test('cli: mcp install masks a key already in the config, in an oauth or a new-k
   writeFileSync(codex, codexBlock(old));
   for (const args of [['cursor'], ['cursor', '--api-key', 'clapi_live_newsecret9999'], ['codex', '--yes'], ['claude-desktop']]) {
     if (args[0] === 'claude-desktop') {
-      const path = desktopConfigPath(process.platform, home, {});
+      const path = desktopConfigPath(process.platform, home, env);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify({ mcpServers: { cleanlist: { command: 'npx', env: { CLEANLIST_API_KEY: old } } } }));
     }
-    const out = await run(['mcp', 'install', ...args], { HOME: home });
+    const out = await run(['mcp', 'install', ...args], env);
     assert.match(out.stderr, /^- .*clapi_live…5678/m, args.join(' '));
     assert.doesNotMatch(out.stderr + out.stdout, /oldsecret|newsecret/, args.join(' '));
   }
