@@ -167,7 +167,7 @@ Retries: every request is retried on a 429, a 5xx or no response, up to 3 tries,
 honoring `Retry-After` (a wait over a minute fails at once with exit 6). Each write
 sends an `Idempotency-Key` that its own retries reuse, so the API runs it once and
 replays the stored answer. A paid call is not resent after a 5xx or no response,
-because its quote may already be spent; the error says to check `cleanlist usage`.
+because its quote may already be spent; the error says to check `cleanlist credits` and the job's status.
 
 ## Test mode
 

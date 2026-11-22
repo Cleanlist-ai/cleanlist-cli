@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { type Command, confirmSpend, type Ctx, isTerminal, list, poll, readInput, resolveList, spend } from '../context.js';
+import { type Command, type Ctx, isTerminal, list, poll, readInput, resolveList, spend } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 import { exportCsv, importCsv } from './lists.js';
 
@@ -55,7 +55,7 @@ export const enrichCommands: Command[] = [
       'last-name': { type: 'string', desc: 'Last name.' },
       company: { type: 'string', desc: 'Company name.' },
       domain: { type: 'string', desc: 'Company domain.' },
-      phone: { type: 'boolean', desc: 'Also find a phone number (10 extra credits).' },
+      phone: { type: 'boolean', desc: 'Find the email AND a phone number (11 credits instead of 1).' },
       list: { type: 'string', desc: 'Save into this list (default "CLI results").' },
       'no-wait': { type: 'boolean', desc: 'Return the workflow id without waiting.' },
       timeout: waitOpts.timeout,
@@ -69,8 +69,11 @@ export const enrichCommands: Command[] = [
       if (!o.email && !o.linkedin && !(firstName && (o.company || o.domain))) {
         throw new CliError(EXIT.USAGE, 'Pass --email, --linkedin, or --name with --company/--domain.');
       }
-      await confirmSpend(ctx, { tool: 'enrich_person', include_phone: Boolean(o.phone), row_count: 1 }, 'Enrich person');
-      const { data } = await ctx.api.post('/api/v2/enrichment/person', {
+      // 'full' is email AND phone (11); the legacy include_phone flag alone means phone only.
+      // The route binds include_phone=true into a 'full' quote, so the estimate must send it too.
+      const enrichment_type = o.phone ? 'full' : 'partial';
+      const estimate = { tool: 'enrich_person', enrichment_type, include_phone: o.phone ? true : undefined, row_count: 1 };
+      const { data } = await spend(ctx, estimate, 'Enrich person', async (quote_id) => ctx.api.post('/api/v2/enrichment/person', {
         lead_list_id: await scratchList(ctx),
         email: o.email,
         linkedin_url: o.linkedin,
@@ -78,8 +81,9 @@ export const enrichCommands: Command[] = [
         last_name: lastName,
         company_name: o.company,
         domain: o.domain,
-        include_phone: Boolean(o.phone),
-      });
+        enrichment_type,
+        quote_id,
+      }));
       if (o['no-wait']) return data;
       return waitForWorkflow(ctx, data.workflow_id, true);
     },
@@ -95,8 +99,10 @@ export const enrichCommands: Command[] = [
     examples: ['cleanlist enrich company --domain stripe.com --yes'],
     async run(ctx) {
       if (!ctx.opts.domain && !ctx.opts.name) throw new CliError(EXIT.USAGE, 'Pass --domain or --name.');
-      await confirmSpend(ctx, { tool: 'enrich_company', row_count: 1 }, 'Enrich company');
-      return (await ctx.api.post('/api/v2/enrichment/company', { domain: ctx.opts.domain, company_name: ctx.opts.name })).data;
+      const { data } = await spend(ctx, { tool: 'enrich_company', row_count: 1 }, 'Enrich company', (quote_id) =>
+        ctx.api.post('/api/v2/enrichment/company', { domain: ctx.opts.domain, company_name: ctx.opts.name, quote_id }),
+      );
+      return data;
     },
   },
   {

@@ -166,7 +166,7 @@ export class Api {
   }
 }
 
-const MAYBE_SPENT = 'It may have run and spent its quote. Check `cleanlist usage` before running it again; a re-run gets a fresh quote.';
+const MAYBE_SPENT = 'It may have run and spent its quote. Check `cleanlist credits` (and the job, e.g. `cleanlist enrich status`) before running it again; a re-run gets a fresh quote.';
 
 /** Refusals the CLI can't work around: say who can do it, and where. */
 const REFUSAL_FIX: Record<string, (env: any) => string> = {

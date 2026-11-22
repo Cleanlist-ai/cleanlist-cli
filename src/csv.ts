@@ -46,10 +46,10 @@ export function csvLine(values: unknown[]): string {
 
 /**
  * Split data rows into chunks the import endpoint accepts: it caps a body at
- * 150 KB / ~600 rows, so stay under both with headroom. Each chunk repeats the
- * header line.
+ * 10 MB / 20,000 rows, so stay well under both. Each chunk repeats the header
+ * line.
  */
-export function chunkRows(header: string[], rows: string[][], maxBytes = 140_000, maxRows = 500): string[] {
+export function chunkRows(header: string[], rows: string[][], maxBytes = 5_000_000, maxRows = 10_000): string[] {
   const head = csvLine(header);
   const chunks: string[] = [];
   let body = '';

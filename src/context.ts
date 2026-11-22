@@ -269,7 +269,7 @@ export async function confirmAction(ctx: Ctx, question: string): Promise<void> {
   throw new CliError(EXIT.CONFIRM, `Confirmation required: ${question}`, 'Re-run with --yes.');
 }
 
-const TERMINAL = new Set(['completed', 'completed_with_errors', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'partial', 'done']);
+const TERMINAL = new Set(['completed', 'completed_with_errors', 'complete', 'succeeded', 'success', 'failed', 'error', 'cancelled', 'canceled', 'terminated', 'partial', 'done']);
 export const isTerminal = (status?: string) => TERMINAL.has(String(status ?? '').toLowerCase());
 
 /** Duration like 90s, 10m, 1h → ms. */

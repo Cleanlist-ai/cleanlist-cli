@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1
+
+Brings the CLI in line with public API v9.35.1.
+
+- `enrich person --phone` now finds the email and the phone (11 credits). It used to send the legacy `include_phone` flag, which the API reads as phone only, at 10 credits.
+- `enrich person` and `enrich company` send the approved quote with the call, so the spend is the one you approved.
+- `lists rows` includes rows imported but not yet enriched, with their `status`. Before, a list fresh from `lists import` showed 0 rows. In JSON they are under `pending_imports`.
+- `lists export` always included AI columns, because that is the API default. `--no-smart-agents` now leaves them out.
+- `lists remove` sends more than 100 lead ids in batches of 100. Before, the API refused them with a 422.
+- `jobs search --limit` goes up to 10,000, as the API allows (was 500).
+- Waiting on an enrichment stops on `terminated`, instead of polling until the timeout.
+- Table views show the fields the API returns: `companies tech` shows `technologies`, `linkedin engagers` shows `company_name` and `engagement`, and `jobs search` shows `city` and `country`.
+- `lists import` sends up to 10,000 rows per call (was 500), within the API's new 10 MB / 20,000-row limit.
+- Help text: `--company-criteria` for `jobs search` takes only `industries` and `company_sizes`; `usage` defaults to 7 days and also groups by `error`; `webhooks add` lists the `crm.record_changed` and `crm.deal_stage_changed` events. When a paid call may have run, the error now points to `cleanlist credits`, not `usage`.
+
 ## 0.2.0
 
 ### Breaking: `agents` is now GTM agents

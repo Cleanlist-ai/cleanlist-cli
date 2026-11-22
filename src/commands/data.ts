@@ -81,7 +81,7 @@ function limitOf(ctx: Ctx, dflt: number, max: number): number {
 const criteriaOpts = {
   'company-domain': { type: 'string' as const, multiple: true, desc: 'Company domain, e.g. acme.com (repeatable or comma separated).' },
   'domains-file': { type: 'string' as const, desc: 'File (or -) with one company domain per line; the first CSV column is used.' },
-  'company-criteria': { type: 'string' as const, desc: 'Company filters as JSON, or a JSON file (or -), as in `search companies`.' },
+  'company-criteria': { type: 'string' as const, desc: 'The employer as JSON, or a JSON file (or -): {"industries":[...],"company_sizes":[...]}; no other keys.' },
 };
 
 const SIGNAL_TYPES = ['job_posting', 'news', 'funding', 'headcount'];
@@ -117,9 +117,9 @@ export const dataCommands: Command[] = [
       location: { type: 'string', multiple: true, desc: 'Posting location (repeatable).' },
       'posted-within-days': { type: 'string', desc: 'Only postings from the last N days.' },
       ...criteriaOpts,
-      ...limitOpt(25, 500),
+      ...limitOpt(25, 10000),
     },
-    view: view(['title', 'company_name', 'company_domain', 'location', 'posted_at', 'url']),
+    view: view(['title', 'company_name', 'company_domain', 'city', 'country', 'posted_at', 'url']),
     examples: [
       'cleanlist jobs search --title "Head of RevOps" --posted-within-days 30 --limit 50 --yes',
       'cut -d, -f1 accounts.csv | cleanlist jobs search --domains-file - --keyword salesforce --format csv',
@@ -132,7 +132,7 @@ export const dataCommands: Command[] = [
         company_criteria: companyCriteria(ctx),
         locations: list(ctx.opts.location, false),
         posted_within_days: intOpt(ctx.opts['posted-within-days'], 'posted-within-days'),
-        limit: limitOf(ctx, 25, 500),
+        limit: limitOf(ctx, 25, 10000),
       };
       if (!body.titles && !body.keywords && !body.company_domains && !body.company_criteria) {
         throw new CliError(EXIT.USAGE, 'Add --title, --keyword, --company-domain or --company-criteria.', 'See `cleanlist jobs search --help`.');
@@ -204,7 +204,7 @@ export const dataCommands: Command[] = [
       'posted-within-days': { type: 'string', desc: 'Posts from the last N days, 1 to 90 (default 14).' },
       ...limitOpt(25, 100),
     },
-    view: view(['full_name', 'title', 'company', 'kind', 'linkedin_url']),
+    view: view(['full_name', 'title', 'company_name', 'engagement', 'linkedin_url']),
     examples: [`cleanlist linkedin engagers --author https://www.linkedin.com/in/jane --people '{"job_titles_include":["VP Sales"]}' --yes`],
     async run(ctx) {
       const authors = list(ctx.opts.author) ?? [];
@@ -230,10 +230,10 @@ export const dataCommands: Command[] = [
     paid: true,
     options: {
       tool: { type: 'string', multiple: true, desc: 'Tool or technology, e.g. Salesforce (repeatable or comma separated).' },
-      'company-criteria': { type: 'string', desc: 'Company filters as JSON, or a JSON file (or -), as in `search companies`. Required.' },
+      'company-criteria': { type: 'string', desc: 'Company filters as JSON, or a JSON file (or -), as in company search (e.g. {"industries_include":[...]}). Required.' },
       ...limitOpt(25, 200),
     },
-    view: view(['name', 'domain', 'industry', 'employees', 'country', 'tools']),
+    view: view(['name', 'domain', 'linkedin_url', 'technologies']),
     examples: [`cleanlist companies tech --tool Outreach,Salesloft --company-criteria '{"industries_include":["Software Development"]}' --limit 100 --yes --format csv > accounts.csv`],
     async run(ctx) {
       const tools = list(ctx.opts.tool);

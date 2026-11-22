@@ -49,7 +49,7 @@ test('jobs search: without --yes exits 7 after the quote; other route errors pas
   const invalid = fakeCtx([], { yes: true, keyword: ['x'] }, { 'POST /api/v2/jobs/search': () => { throw toError(422, { error: { code: 'invalid_arguments', problem: 'bad' } }); } });
   await assert.rejects(cmd('jobs search').run(invalid), (e) => e.exitCode === EXIT.USAGE && e.apiCode === 'invalid_arguments');
   assert.equal(invalid.calls.length, 1);
-  for (const opts of [{}, { keyword: ['x'], limit: '0' }, { keyword: ['x'], limit: '501' }, { 'company-criteria': '[1]' }]) {
+  for (const opts of [{}, { keyword: ['x'], limit: '0' }, { keyword: ['x'], limit: '10001' }, { 'company-criteria': '[1]' }]) {
     const c = fakeCtx([], { yes: true, ...opts }, {});
     await assert.rejects(cmd('jobs search').run(c), (e) => e.exitCode === EXIT.USAGE);
     assert.equal(c.calls.length, 0);
