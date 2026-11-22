@@ -13,6 +13,9 @@ const enc = encodeURIComponent;
 /**
  * Page through `GET /lead-lists/{id}/leads`. For csv/jsonl each page is
  * written as it arrives; otherwise the pages are collected and returned.
+ * Rows imported but not yet enriched come back beside the leads, in
+ * `pending_imports`; both page on the same offset, so whichever cursor is
+ * left carries the walk on.
  */
 async function rows(ctx: Ctx, listId: string) {
   const limit = intOpt(ctx.opts.limit, 'limit');
@@ -21,21 +24,25 @@ async function rows(ctx: Ctx, listId: string) {
   let cursor: string | undefined = ctx.opts.cursor;
   let first: any;
   const leads: any[] = [];
+  const pending: any[] = [];
   let columns: string[] | undefined;
+  const count = () => leads.length + pending.length;
   do {
-    const want = limit ? Math.min(500, limit - leads.length) : all ? 500 : 100;
+    const want = limit ? Math.min(500, limit - count()) : all ? 500 : 100;
     const { data } = await ctx.api.get(`/api/v2/lead-lists/${enc(listId)}/leads`, { limit: want, cursor });
     first ??= data;
-    if (streaming) columns = printRows(data.leads ?? [], ctx.format as 'csv' | 'jsonl', !columns, columns) ?? columns;
+    const page = [...(data.leads ?? []), ...(data.pending_imports ?? [])];
+    if (streaming) columns = printRows(page, ctx.format as 'csv' | 'jsonl', !columns, columns) ?? columns;
     leads.push(...(data.leads ?? []));
-    cursor = data.cursor ?? undefined;
-    if (all && cursor) ctx.log(`Fetched ${leads.length} of ${data.total}…`);
-  } while (cursor && (all || (limit !== undefined && leads.length < limit)));
+    pending.push(...(data.pending_imports ?? []));
+    cursor = data.cursor ?? data.pending_import_cursor ?? undefined;
+    if (all && cursor) ctx.log(`Fetched ${count()} of ${(data.total ?? 0) + (data.pending_import_total ?? 0)}…`);
+  } while (cursor && (all || (limit !== undefined && count() < limit)));
   if (streaming) return undefined;
-  return { ...first, leads, cursor: cursor ?? null };
+  return { ...first, leads, pending_imports: pending, cursor: cursor ?? null, pending_import_cursor: undefined };
 }
 
-/** Import a CSV into a list in ≤500-row chunks. Idempotent per chunk for 24h, so re-runs don't duplicate. */
+/** Import a CSV into a list in ≤10,000-row chunks. Idempotent per chunk for 24h, so re-runs don't duplicate. */
 export async function importCsv(ctx: Ctx, listId: string, text: string, maps: string[] = []) {
   const [header, ...data] = parseCsv(text);
   if (!header || !data.length) throw new CliError(EXIT.USAGE, 'The CSV has no data rows.');
@@ -78,7 +85,7 @@ export async function importCsv(ctx: Ctx, listId: string, text: string, maps: st
 
 /** Export a list to CSV: start the job, re-ask with job_id until done, then download. */
 export async function exportCsv(ctx: Ctx, listId: string, outPath?: string) {
-  const body: Record<string, unknown> = { list_id: listId, columns: list(ctx.opts.columns), include_smart_agents: ctx.opts['smart-agents'] ? true : undefined };
+  const body: Record<string, unknown> = { list_id: listId, columns: list(ctx.opts.columns), include_smart_agents: !ctx.opts['no-smart-agents'] };
   const job = await poll(
     ctx,
     async () => {
@@ -163,13 +170,13 @@ export const listCommands: Command[] = [
   {
     name: 'lists rows',
     args: '<list>',
-    summary: 'Read the people in a list. --format csv|jsonl streams every page with --all.',
+    summary: 'Read the people in a list, including imported rows not yet enriched (status column). --format csv|jsonl streams every page with --all.',
     options: {
       limit: { type: 'string', desc: 'Max rows (default 100).' },
       all: { type: 'boolean', desc: 'Fetch every page.' },
       cursor: { type: 'string', desc: 'Start from this cursor.' },
     },
-    view: { rows: (d) => d.leads, columns: LEAD_COLUMNS },
+    view: { rows: (d) => [...(d.leads ?? []), ...(d.pending_imports ?? [])], columns: [...LEAD_COLUMNS, 'status'] },
     examples: ['cleanlist lists rows "Q4 ABM" --all --format csv > q4.csv', 'cleanlist lists rows "Q4 ABM" --limit 20'],
     async run(ctx) {
       return rows(ctx, await resolveList(ctx, ctx.args[0]));
@@ -204,7 +211,13 @@ export const listCommands: Command[] = [
       const id = await resolveList(ctx, ctx.args[0]);
       const leadIds = list(ctx.opts['lead-ids']);
       if (!leadIds) throw new CliError(EXIT.USAGE, 'Pass --lead-ids.');
-      return (await ctx.api.request('DELETE', `/api/v2/lead-lists/${enc(id)}/leads`, { body: { lead_ids: leadIds } })).data;
+      // The route takes at most 100 ids a call.
+      let removed = 0;
+      for (let i = 0; i < leadIds.length; i += 100) {
+        const { data } = await ctx.api.request('DELETE', `/api/v2/lead-lists/${enc(id)}/leads`, { body: { lead_ids: leadIds.slice(i, i + 100) } });
+        removed += data.removed ?? 0;
+      }
+      return { list_id: id, removed };
     },
   },
   {
@@ -226,7 +239,8 @@ export const listCommands: Command[] = [
     options: {
       out: { type: 'string', short: 'o', desc: 'Write to this file instead of stdout.' },
       columns: { type: 'string', multiple: true, desc: 'Columns to include, in order.' },
-      'smart-agents': { type: 'boolean', desc: 'Include smart-agent (AI) columns.' },
+      'no-smart-agents': { type: 'boolean', desc: 'Leave out smart-agent (AI) columns (included by default).' },
+      'smart-agents': { type: 'boolean', desc: 'Include smart-agent (AI) columns. The default; kept for older scripts.' },
     },
     examples: ['cleanlist lists export "Q4 ABM" -o q4.csv', 'cleanlist lists export "Q4 ABM" | head'],
     async run(ctx) {

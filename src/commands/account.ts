@@ -195,8 +195,8 @@ export const accountCommands: Command[] = [
     summary: 'API usage report: calls, credits spent and errors, grouped by tool or day.',
     examples: ['cleanlist usage --days 7 --group-by day'],
     options: {
-      days: { type: 'string', desc: 'Look-back window in days (default 30).' },
-      'group-by': { type: 'string', desc: 'tool | day | key.' },
+      days: { type: 'string', desc: 'Look-back window in days, 1 to 365 (default 7).' },
+      'group-by': { type: 'string', desc: 'tool | day | key | error (default tool).' },
     },
     view: { rows: (d) => d.rows, columns: ['group', 'calls', 'credits_spent', 'errors'] },
     async run(ctx) {

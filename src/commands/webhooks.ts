@@ -2,7 +2,7 @@ import { type Command, confirmAction, list, requireArg } from '../context.js';
 import { CliError, EXIT } from '../errors.js';
 
 const enc = encodeURIComponent;
-const EVENTS = 'play_run.completed, play_run.failed, approval.needed, reply.received, enrichment.completed, job_change.detected, website_visit.detected';
+const EVENTS = 'play_run.completed, play_run.failed, approval.needed, reply.received, enrichment.completed, job_change.detected, website_visit.detected, crm.record_changed, crm.deal_stage_changed';
 
 export const webhookCommands: Command[] = [
   {
